@@ -4,6 +4,7 @@ import Combine
 import CursayCore
 import Foundation
 import ServiceManagement
+import os
 
 enum AppPhase: Equatable {
     case ready
@@ -52,6 +53,8 @@ enum BackendState: Equatable {
 
 @MainActor
 final class AppModel: ObservableObject {
+    private let logger = Logger(subsystem: "io.github.shadoprizm.Cursay", category: "application")
+
     @Published private(set) var phase: AppPhase = .ready
     @Published private(set) var history: [Dictation] = []
     @Published private(set) var latestText = ""
@@ -86,13 +89,16 @@ final class AppModel: ObservableObject {
         do {
             shortcutLabel = try hotKey.registerPreferredShortcut()
             shortcutRegistered = true
+            logger.notice("Global shortcut registered: \(self.shortcutLabel, privacy: .public)")
         } catch {
             shortcutRegistered = false
             phase = .failed(error.localizedDescription)
+            logger.error("Global shortcut registration failed: \(error.localizedDescription, privacy: .public)")
         }
 
         Task {
-            _ = await AudioRecorder.requestPermission()
+            let microphoneAllowed = await AudioRecorder.requestPermission()
+            logger.notice("Microphone permission allowed: \(microphoneAllowed, privacy: .public)")
             await checkBackend()
         }
     }
@@ -137,8 +143,10 @@ final class AppModel: ObservableObject {
         do {
             try recorder.start()
             phase = .recording
+            logger.notice("Recording started")
         } catch {
             phase = .failed(error.localizedDescription)
+            logger.error("Recording failed to start: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -147,11 +155,13 @@ final class AppModel: ObservableObject {
         do {
             let recording = try recorder.stop()
             phase = .transcribing
+            logger.notice("Recording stopped; transcription started")
             Task {
                 await process(recordingURL: recording.url, measuredDuration: recording.duration)
             }
         } catch {
             phase = .failed(error.localizedDescription)
+            logger.error("Recording failed to stop: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -175,7 +185,9 @@ final class AppModel: ObservableObject {
 
     func checkBackend() async {
         backendState = .checking
-        backendState = await transcriptionClient.health(endpoint: settings.endpoint) ? .available : .unavailable
+        let available = await transcriptionClient.health(endpoint: settings.endpoint)
+        backendState = available ? .available : .unavailable
+        logger.notice("Transcription backend available: \(available, privacy: .public)")
     }
 
     func requestAccessibilityAccess() {
@@ -268,8 +280,10 @@ final class AppModel: ObservableObject {
                 _ = pasteController.copy(final)
             }
             phase = .complete(pasted: pasted)
+            logger.notice("Dictation completed; automatic paste succeeded: \(pasted, privacy: .public)")
         } catch {
             phase = .failed(error.localizedDescription)
+            logger.error("Dictation failed: \(error.localizedDescription, privacy: .public)")
         }
 
         if !settings.preserveRecordings {
