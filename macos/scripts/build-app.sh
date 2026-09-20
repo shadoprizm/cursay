@@ -21,7 +21,12 @@ if ! command -v xcrun >/dev/null 2>&1; then
 fi
 
 cd "$MACOS_DIR"
-swift test
+if swift -e 'import XCTest' >/dev/null 2>&1; then
+    swift test
+else
+    echo "Warning: XCTest is unavailable in the selected developer toolchain; skipping Swift tests."
+    echo "Install and select full Xcode to enable them."
+fi
 swift build -c release --product Cursay
 BIN_DIR="$(swift build -c release --show-bin-path)"
 
