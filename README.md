@@ -44,6 +44,7 @@ Silence does not end the recording. Releasing the shortcut does.
 - **Wayland-native shortcut:** uses the Global Shortcuts portal instead of a keylogger.
 - **No Remote Desktop access:** paste is performed through a private keyboard-only `uinput` device.
 - **Useful cleanup:** professional, casual, code, and raw modes; optional filler-word removal.
+- **Comfortable appearance:** follows your system light/dark preference, with a manual override.
 - **Backend-friendly:** use the included local service or another OpenAI-compatible transcription endpoint.
 
 ## Install on Ubuntu

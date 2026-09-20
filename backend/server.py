@@ -26,7 +26,7 @@ MODEL_DIR = Path(
     )
 )
 
-app = FastAPI(title="Cursay Speech-to-Text", version="1.0.0")
+app = FastAPI(title="Cursay Speech-to-Text", version="1.1.0")
 _lock = threading.Lock()
 _model: WhisperModel | None = None
 

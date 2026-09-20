@@ -27,6 +27,21 @@ class PipeWireRecorder:
     def recording(self) -> bool:
         return self.process is not None and self.process.poll() is None
 
+    @staticmethod
+    def _record_command(executable: str, path: Path) -> list[str]:
+        return [
+            executable,
+            "--rate",
+            "16000",
+            "--channels",
+            "1",
+            "--format",
+            "s16",
+            "--media-role",
+            "Communication",
+            str(path),
+        ]
+
     def start(self) -> Path:
         if self.recording:
             raise AudioError("A recording is already in progress")
@@ -37,18 +52,7 @@ class PipeWireRecorder:
         TEMP_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         self.path = TEMP_DIR / f"dictation-{timestamp}.wav"
-        command = [
-            executable,
-            "--rate",
-            "16000",
-            "--channels",
-            "1",
-            "--format",
-            "s16",
-            "--properties",
-            "media.name=Cursay Dictation media.role=Communication",
-            str(self.path),
-        ]
+        command = self._record_command(executable, self.path)
         try:
             self.process = subprocess.Popen(
                 command,

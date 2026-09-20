@@ -18,7 +18,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from . import __version__
 from .audio import AudioError, PipeWireRecorder
 from .cleanup import clean_transcript, polish_transcript
-from .config import APP_ID, APP_NAME, PROJECT_DIR, load_config, save_config
+from .config import APPEARANCE_OPTIONS, APP_ID, APP_NAME, PROJECT_DIR, load_config, save_config
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
 from .storage import HistoryStore
@@ -32,26 +32,124 @@ WL_COPY = _BUNDLED_WL_COPY if _BUNDLED_WL_COPY.is_file() else Path(shutil.which(
 WL_PASTE = _BUNDLED_WL_PASTE if _BUNDLED_WL_PASTE.is_file() else Path(shutil.which("wl-paste") or _BUNDLED_WL_PASTE)
 
 CSS = """
-window { background: #0c111b; }
-.app-shell { background: #0c111b; }
-.sidebar { background: #101827; border-right: 1px solid alpha(#ffffff, 0.08); }
-.hero { background: linear-gradient(135deg, #18243a, #122b34); border-radius: 24px;
-        border: 1px solid alpha(#7ce6c1, 0.18); padding: 28px; }
-.card { background: #141d2c; border-radius: 18px; border: 1px solid alpha(#ffffff, 0.08); padding: 20px; }
-.metric { background: #141d2c; border-radius: 16px; border: 1px solid alpha(#ffffff, 0.08); padding: 18px; }
-.brand { font-size: 22px; font-weight: 800; color: #f4fbff; }
-.hero-title { font-size: 28px; font-weight: 800; color: #f4fbff; }
-.section-title { font-size: 20px; font-weight: 750; color: #f4fbff; }
-.muted { color: #98a8ba; }
-.metric-value { font-size: 28px; font-weight: 800; color: #7ce6c1; }
-.record-button { min-width: 210px; min-height: 70px; border-radius: 35px; font-size: 17px;
-                 font-weight: 750; background: #5bd6ae; color: #07140f; }
-.record-button:active, .recording { background: #ff6b7a; color: #21070b; }
-.status-pill { border-radius: 999px; padding: 7px 13px; background: alpha(#7ce6c1, 0.12);
-               color: #86edca; font-weight: 700; }
+window.theme-dark {
+  background-color: #0a1120;
+  color: #eef4fb;
+}
+window.theme-light {
+  background-color: #f3f6fa;
+  color: #172235;
+}
+
+.theme-dark .app-shell { background-color: #0a1120; }
+.theme-light .app-shell { background-color: #f3f6fa; }
+
+.theme-dark .sidebar {
+  background-color: #101a2b;
+  border-right: 1px solid #2b3a50;
+}
+.theme-light .sidebar {
+  background-color: #e9eef5;
+  border-right: 1px solid #cbd5e1;
+}
+
+.hero {
+  border-radius: 24px;
+  padding: 30px;
+}
+.theme-dark .hero {
+  background-image: linear-gradient(135deg, #172842, #10343a);
+  border: 1px solid #315067;
+  box-shadow: 0 10px 28px alpha(#000000, 0.22);
+}
+.theme-light .hero {
+  background-image: linear-gradient(135deg, #ffffff, #e7f8f2);
+  border: 1px solid #b9dcd1;
+  box-shadow: 0 10px 28px alpha(#4b6178, 0.12);
+}
+
+.card, .metric {
+  border-radius: 18px;
+}
+.card { padding: 20px; }
+.metric { padding: 18px; }
+.theme-dark .card, .theme-dark .metric {
+  background-color: #131f31;
+  border: 1px solid #2a3a50;
+}
+.theme-light .card, .theme-light .metric {
+  background-color: #ffffff;
+  border: 1px solid #d4dce7;
+  box-shadow: 0 4px 16px alpha(#4b6178, 0.07);
+}
+
+.brand { font-size: 22px; font-weight: 800; }
+.hero-title { font-size: 28px; font-weight: 800; }
+.section-title { font-size: 20px; font-weight: 750; }
+.theme-dark .brand, .theme-dark .hero-title, .theme-dark .section-title { color: #f7faff; }
+.theme-light .brand, .theme-light .hero-title, .theme-light .section-title { color: #142033; }
+.theme-dark .muted { color: #b4c1d0; }
+.theme-light .muted { color: #52647a; }
+
+.metric-value { font-size: 28px; font-weight: 800; }
+.theme-dark .metric-value { color: #78e4c3; }
+.theme-light .metric-value { color: #08755d; }
+
+.record-button {
+  min-width: 220px;
+  min-height: 72px;
+  border-radius: 36px;
+  font-size: 17px;
+  font-weight: 800;
+  background-image: none;
+  background-color: #57d7ae;
+  color: #071b14;
+  box-shadow: 0 7px 18px alpha(#1a9c77, 0.26);
+}
+.record-button:hover { background-color: #6ee3be; }
+.record-button:active, .recording {
+  background-image: none;
+  background-color: #ff7180;
+  color: #2b080d;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-weight: 700;
+}
+.theme-dark .status-pill { background-color: #203f43; color: #8ce9cc; }
+.theme-light .status-pill { background-color: #d9f4eb; color: #08614e; }
+
 .history-row { padding: 13px; }
-.result-box { background: #0c1421; border-radius: 14px; padding: 12px; }
+.result-box {
+  border-radius: 14px;
+  padding: 12px;
+}
+.theme-dark .result-box {
+  background-color: #091321;
+  color: #eef4fb;
+  border: 1px solid #26384f;
+}
+.theme-light .result-box {
+  background-color: #f6f8fb;
+  color: #172235;
+  border: 1px solid #d5dee8;
+}
+
+.copy-button { min-width: 76px; font-weight: 700; }
+.theme-dark .copy-button { color: #dff9f0; }
+.theme-light .copy-button { color: #075f4d; }
+
+.version-label { padding: 4px 16px 2px; font-size: 12px; }
+.theme-dark .version-label { color: #a9b8c9; }
+.theme-light .version-label { color: #566980; }
+
 stacksidebar row { margin: 4px 8px; border-radius: 10px; }
+.theme-dark stacksidebar row { color: #c8d3df; }
+.theme-light stacksidebar row { color: #35465b; }
+.theme-dark stacksidebar row:selected { background-color: #21354e; color: #ffffff; }
+.theme-light stacksidebar row:selected { background-color: #d5e6e2; color: #0c493d; }
 """
 
 
@@ -59,6 +157,7 @@ class CursayWindow(Adw.ApplicationWindow):
     def __init__(self, application: "CursayApplication") -> None:
         super().__init__(application=application)
         self.app = application
+        self.sync_theme(application.is_dark_theme())
         self.set_title(APP_NAME)
         self.set_default_size(1060, 720)
         self.set_size_request(840, 600)
@@ -88,8 +187,8 @@ class CursayWindow(Adw.ApplicationWindow):
         sidebar = Gtk.StackSidebar(stack=self.stack)
         sidebar.set_vexpand(True)
         sidebar_box.append(sidebar)
-        version = Gtk.Label(label=f"Private • Local • v{__version__}")
-        version.add_css_class("muted")
+        version = Gtk.Label(label=f"Private • Local\nVersion {__version__}")
+        version.add_css_class("version-label")
         sidebar_box.append(version)
         shell.append(sidebar_box)
         shell.append(self.stack)
@@ -110,6 +209,11 @@ class CursayWindow(Adw.ApplicationWindow):
         label = Gtk.Label(label="Cursay")
         label.add_css_class("brand")
         return label
+
+    def sync_theme(self, dark: bool) -> None:
+        self.remove_css_class("theme-dark")
+        self.remove_css_class("theme-light")
+        self.add_css_class("theme-dark" if dark else "theme-light")
 
     @staticmethod
     def _page_container() -> Gtk.ScrolledWindow:
@@ -196,6 +300,7 @@ class CursayWindow(Adw.ApplicationWindow):
         copy_button = Gtk.Button(label="Copy")
         copy_button.set_halign(Gtk.Align.END)
         copy_button.set_hexpand(True)
+        copy_button.add_css_class("copy-button")
         copy_button.connect("clicked", lambda *_: self.app.copy_latest())
         result_header.append(copy_button)
         result_card.append(result_header)
@@ -289,6 +394,27 @@ class CursayWindow(Adw.ApplicationWindow):
         content = self._content_box()
         scroll.set_child(content)
         content.append(self._section_title("Settings", "Tune Cursay without weakening Ubuntu's Wayland security."))
+
+        appearance_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        appearance_card.add_css_class("card")
+        appearance_card.append(
+            self._section_title(
+                "Appearance",
+                "Follow your system theme automatically, or keep Cursay in light or dark mode.",
+            )
+        )
+        appearance_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        appearance_label = Gtk.Label(label="Theme", xalign=0)
+        appearance_label.set_hexpand(True)
+        appearance_row.append(appearance_label)
+        self.appearance_dropdown = Gtk.DropDown.new_from_strings(["System", "Light", "Dark"])
+        appearance = str(self.app.config.get("appearance", "system"))
+        selected = APPEARANCE_OPTIONS.index(appearance) if appearance in APPEARANCE_OPTIONS else 0
+        self.appearance_dropdown.set_selected(selected)
+        self.appearance_dropdown.connect("notify::selected", self._appearance_changed)
+        appearance_row.append(self.appearance_dropdown)
+        appearance_card.append(appearance_row)
+        content.append(appearance_card)
 
         shortcut_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         shortcut_card.add_css_class("card")
@@ -400,6 +526,9 @@ class CursayWindow(Adw.ApplicationWindow):
     def _mode_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
         modes = ["professional", "casual", "code", "raw"]
         self.app.update_setting("mode", modes[dropdown.get_selected()])
+
+    def _appearance_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
+        self.app.set_appearance(APPEARANCE_OPTIONS[dropdown.get_selected()])
 
     def _backend_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
         model = "whisper-base.en" if dropdown.get_selected() == 1 else "cursay-stt-auto"
@@ -518,12 +647,16 @@ class CursayApplication(Adw.Application):
         self.pending_auto_paste = False
         self.pending_auto_paste_text = ""
         self.clipboard_provider: Gdk.ContentProvider | None = None
+        self.style_manager: Adw.StyleManager | None = None
         self.virtual_keyboard = VirtualKeyboard()
         self.shortcut_status = "Starting global shortcut…"
         self.shortcuts: GlobalShortcutPortal | None = None
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
+        self.style_manager = Adw.StyleManager.get_default()
+        self.style_manager.connect("notify::dark", self._theme_changed)
+        self._apply_appearance()
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_display(
@@ -768,6 +901,34 @@ class CursayApplication(Adw.Application):
     def update_setting(self, key: str, value: Any) -> None:
         self.config[key] = value
         save_config(self.config)
+
+    def is_dark_theme(self) -> bool:
+        return bool(self.style_manager and self.style_manager.get_dark())
+
+    def set_appearance(self, appearance: str) -> None:
+        if appearance not in APPEARANCE_OPTIONS:
+            appearance = "system"
+        self.update_setting("appearance", appearance)
+        self._apply_appearance()
+        if self.window:
+            self.window.toast(f"Appearance set to {appearance.title()}")
+
+    def _apply_appearance(self) -> None:
+        if self.style_manager is None:
+            return
+        schemes = {
+            "system": Adw.ColorScheme.DEFAULT,
+            "light": Adw.ColorScheme.FORCE_LIGHT,
+            "dark": Adw.ColorScheme.FORCE_DARK,
+        }
+        appearance = str(self.config.get("appearance", "system"))
+        self.style_manager.set_color_scheme(schemes.get(appearance, Adw.ColorScheme.DEFAULT))
+        if self.window:
+            self.window.sync_theme(self.style_manager.get_dark())
+
+    def _theme_changed(self, style_manager: Adw.StyleManager, _param: Any) -> None:
+        if self.window:
+            self.window.sync_theme(style_manager.get_dark())
 
     def set_launch_at_login(self, enabled: bool) -> None:
         unit = "cursay.service"

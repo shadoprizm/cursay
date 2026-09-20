@@ -11,6 +11,7 @@ from typing import Any
 
 APP_ID = "io.github.shadoprizm.Cursay"
 APP_NAME = "Cursay"
+APPEARANCE_OPTIONS = ("system", "light", "dark")
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "cursay"
 DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "cursay"
@@ -24,6 +25,7 @@ TEMP_DIR = CACHE_DIR / "recordings"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "mode": "professional",
+    "appearance": "system",
     "language": "en",
     "stt_endpoint": "http://127.0.0.1:8765/v1/audio/transcriptions",
     "stt_model": "whisper-base.en",
@@ -87,6 +89,8 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, Any]:
             config.update({key: value for key, value in data.items() if key in DEFAULT_CONFIG})
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
+    if config["appearance"] not in APPEARANCE_OPTIONS:
+        config["appearance"] = "system"
     return config
 
 

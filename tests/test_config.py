@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cursay.config import DEFAULT_CONFIG, load_config, migrate_legacy_data, save_config
+from cursay.config import APPEARANCE_OPTIONS, DEFAULT_CONFIG, load_config, migrate_legacy_data, save_config
 
 
 class ConfigTests(unittest.TestCase):
@@ -24,6 +24,22 @@ class ConfigTests(unittest.TestCase):
             path = Path(directory) / "config.json"
             path.write_text("not json", encoding="utf-8")
             self.assertEqual(load_config(path)["mode"], DEFAULT_CONFIG["mode"])
+
+    def test_appearance_defaults_to_system_and_round_trips(self) -> None:
+        self.assertEqual(DEFAULT_CONFIG["appearance"], "system")
+        self.assertEqual(APPEARANCE_OPTIONS, ("system", "light", "dark"))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            value = dict(DEFAULT_CONFIG)
+            value["appearance"] = "dark"
+            save_config(value, path)
+            self.assertEqual(load_config(path)["appearance"], "dark")
+
+    def test_invalid_appearance_falls_back_to_system(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text('{"appearance": "sepia"}', encoding="utf-8")
+            self.assertEqual(load_config(path)["appearance"], "system")
 
     def test_migrates_legacy_profile_without_removing_original(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
