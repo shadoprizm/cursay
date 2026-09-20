@@ -1,0 +1,22 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes python3-gi python3-dbus gir1.2-gtk-4.0 gir1.2-adw-1 xvfb
+      - name: Run unit tests
+        run: xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v
+      - name: Run UI smoke test
+        run: xvfb-run -a /usr/bin/python3 bin/cursay --smoke-test

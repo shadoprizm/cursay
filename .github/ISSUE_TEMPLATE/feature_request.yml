@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest a focused improvement to Cursay
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What dictation workflow is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy or permission impact
+      description: Would this require new access to input, audio, screen content, or remote services?

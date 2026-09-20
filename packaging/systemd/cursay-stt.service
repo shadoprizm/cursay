@@ -1,0 +1,19 @@
+[Unit]
+Description=Cursay local Whisper transcription
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/opt/cursay/backend
+ExecStart=%h/.local/share/cursay/runtime/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8765 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+Environment=CURSAY_MODEL=base.en
+Environment=CURSAY_LANGUAGE=en
+Environment=OMP_NUM_THREADS=4
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target

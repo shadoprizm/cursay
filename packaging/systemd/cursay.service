@@ -1,0 +1,15 @@
+[Unit]
+Description=Cursay system-wide dictation
+Wants=cursay-input.service cursay-stt.service
+After=graphical-session.target cursay-input.service cursay-stt.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/opt/cursay/bin/cursay
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target

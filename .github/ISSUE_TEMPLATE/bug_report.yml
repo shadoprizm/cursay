@@ -1,0 +1,56 @@
+name: Bug report
+description: Tell us about a reproducible Cursay problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never attach private dictations, audio, API keys, or clipboard contents.
+  - type: input
+    id: version
+    attributes:
+      label: Cursay version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Ubuntu and desktop version
+      placeholder: Ubuntu 26.04, GNOME, Wayland
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: What failed?
+      options:
+        - Global shortcut
+        - Microphone recording
+        - Transcription
+        - Clipboard copy
+        - Automatic paste
+        - User interface
+        - Installation or update
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use placeholder text instead of anything private.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste relevant output from `cursay --check` or the journal after removing private information.
+      render: shell

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Cursay
+GenericName=Voice Dictation
+Comment=Private, system-wide dictation for Ubuntu
+Exec=@INSTALL_ROOT@/bin/cursay
+Icon=@INSTALL_ROOT@/assets/cursay.svg
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=dictation;speech;voice;transcription;whisper;
+StartupNotify=true
+DBusActivatable=false
+StartupWMClass=io.github.shadoprizm.Cursay

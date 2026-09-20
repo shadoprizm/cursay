@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+project = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project))
+
+from cursay.__main__ import main
+
+raise SystemExit(main())
