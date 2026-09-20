@@ -42,7 +42,7 @@ final class GlobalHotKey {
         let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             cursayHotKeyHandler,
-            UInt32(events.count),
+            events.count,
             &events,
             pointer,
             &handlerRef
@@ -59,7 +59,7 @@ final class GlobalHotKey {
             (UInt32(controlKey), "Ctrl + Space"),
             (UInt32(controlKey | optionKey), "Ctrl + Option + Space"),
         ]
-        var lastStatus: OSStatus = eventHotKeyExistsErr
+        var lastStatus = OSStatus(eventHotKeyExistsErr)
         for (index, candidate) in candidates.enumerated() {
             var candidateRef: EventHotKeyRef?
             let hotKeyID = EventHotKeyID(signature: fourCharacterCode("CRSY"), id: UInt32(index + 1))
