@@ -29,6 +29,21 @@ class InstallationTests(unittest.TestCase):
         self.assertIn("systemctl --user disable cursay-stt.service", skip_backend_block)
         self.assertIn('rm -f -- "$systemd_dir/cursay-stt.service"', skip_backend_block)
 
+    def test_backend_install_uses_the_hash_locked_dependency_set(self) -> None:
+        installer = (PROJECT_DIR / "install.sh").read_text(encoding="utf-8")
+        lock = (PROJECT_DIR / "backend" / "requirements.lock").read_text(encoding="utf-8")
+        direct_requirements = [
+            line.strip()
+            for line in (PROJECT_DIR / "backend" / "requirements.txt").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+
+        self.assertIn("--require-hashes", installer)
+        self.assertIn('backend/requirements.lock', installer)
+        for requirement in direct_requirements:
+            self.assertIn(f"{requirement} \\", lock)
+        self.assertNotIn(">=", lock)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,7 @@
 <p align="center"><strong>Speak. Your words appear at the cursor.</strong></p>
 
 <p align="center">
-  <a href="https://cursay.vercel.app"><strong>Website</strong></a>
+  <a href="https://cursay.com/"><strong>Website</strong></a>
   ·
   <a href="https://github.com/shadoprizm/cursay/releases/latest"><strong>Latest release</strong></a>
 </p>
@@ -199,7 +199,8 @@ cd macos
 ./scripts/build-app.sh
 ```
 
-The local STT service has its own small dependency set in `backend/requirements.txt`.
+The local STT service declares its direct dependencies in `backend/requirements.txt` and installs the fully pinned,
+hash-verified dependency set from `backend/requirements.lock`.
 
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, see [CHANGELOG.md](CHANGELOG.md) for release notes, and use [SECURITY.md](SECURITY.md) for vulnerability reports.
 

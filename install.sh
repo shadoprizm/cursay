@@ -96,7 +96,8 @@ if [ "$install_backend" = true ]; then
     fi
     "$runtime_root/venv/bin/python" -m pip install \
         --disable-pip-version-check \
-        --requirement "$stage_app/backend/requirements.txt"
+        --require-hashes \
+        --requirement "$stage_app/backend/requirements.lock"
     if [ "$download_model" = true ]; then
         CURSAY_MODEL_DIR="$data_root/cursay/models" \
             "$runtime_root/venv/bin/python" "$stage_app/backend/download_model.py"

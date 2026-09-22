@@ -7,7 +7,9 @@ Releases are built from a clean `main` checkout after CI passes.
 1. Update the version in `pyproject.toml`, `cursay/__init__.py`, `backend/server.py`, and
    `tests/test_version.py`.
 2. Add the release notes to `CHANGELOG.md`.
-3. Run the release checks:
+3. If backend dependencies changed, regenerate `backend/requirements.lock` using the command in
+   `CONTRIBUTING.md`.
+4. Run the release checks:
 
    ```bash
    ruff check cursay backend tests
@@ -19,7 +21,7 @@ Releases are built from a clean `main` checkout after CI passes.
 
    Changes under `macos/` must also pass the macOS workflow, which runs the Swift tests and assembles the app bundle on a GitHub-hosted Mac.
 
-4. Test a fresh install and an upgrade on supported Ubuntu releases. Exercise local transcription,
+5. Test a fresh install and an upgrade on supported Ubuntu releases. Exercise local transcription,
    Smart Polish success and fallback, automatic paste, and `./install.sh --skip-backend`.
 
 ## Publish

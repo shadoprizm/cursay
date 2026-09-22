@@ -24,6 +24,18 @@ xvfb-run -a /usr/bin/python3 bin/cursay --smoke-test
 
 Use `./install.sh --skip-model` to test the installed desktop integration without downloading a model immediately.
 
+The desktop UI uses Ubuntu's system Python packages. PyPI dependencies for the bundled transcription backend are
+declared in `backend/requirements.txt` and installed from the hash-verified `backend/requirements.lock`. After
+changing a direct backend dependency, regenerate the lock for the supported Ubuntu/Python baseline:
+
+```bash
+uv pip compile --generate-hashes \
+  --python-version 3.12 \
+  --python-platform x86_64-manylinux_2_28 \
+  backend/requirements.txt \
+  --output-file backend/requirements.lock
+```
+
 ## Pull requests
 
 - Keep changes focused and explain the user-visible behavior.
