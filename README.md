@@ -7,6 +7,12 @@
 <p align="center"><strong>Speak. Your words appear at the cursor.</strong></p>
 
 <p align="center">
+  <a href="https://cursay.vercel.app"><strong>Website</strong></a>
+  ·
+  <a href="https://github.com/shadoprizm/cursay/releases/latest"><strong>Latest release</strong></a>
+</p>
+
+<p align="center">
   Free, open-source, system-wide dictation for macOS and Ubuntu.<br>
   Local by default. No subscription. No Remote Desktop permission.
 </p>
