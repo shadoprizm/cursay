@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import unittest
+import urllib.error
+from unittest import mock
 
-from cursay.updates import UpdateError, is_newer_version, release_from_payload
+from cursay.updates import (
+    NoReleaseAvailable,
+    UpdateError,
+    fetch_latest_release,
+    is_newer_version,
+    release_from_payload,
+)
 
 
 class UpdateTests(unittest.TestCase):
@@ -54,6 +62,13 @@ class UpdateTests(unittest.TestCase):
                     "html_url": "https://github.com/shadoprizm/cursay/releases/latest",
                 }
             )
+
+    @mock.patch("urllib.request.urlopen")
+    def test_missing_github_release_has_a_clear_state(self, urlopen: mock.Mock) -> None:
+        urlopen.side_effect = urllib.error.HTTPError("https://example.test", 404, "Not Found", {}, None)
+
+        with self.assertRaisesRegex(NoReleaseAvailable, "No published Cursay update"):
+            fetch_latest_release()
 
 
 if __name__ == "__main__":
