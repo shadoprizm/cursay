@@ -62,9 +62,34 @@ fi
 
 plutil -lint "$CONTENTS_DIR/Info.plist"
 
-# An ad-hoc signature is enough for running the local development build. A
-# Developer ID signature and notarization should replace this for distribution.
-codesign --force --deep --sign - "$APP_DIR"
+# Prefer a stable Apple Development identity when one is installed. macOS ties
+# Accessibility consent to the app's signing requirement, so ad-hoc signing on
+# every rebuild can make an already approved development app untrusted again.
+SIGNING_IDENTITY="${CURSAY_CODESIGN_IDENTITY:-}"
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+    SIGNING_IDENTITY="$(
+        security find-identity -v -p codesigning 2>/dev/null \
+            | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' \
+            | head -n 1
+    )"
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+    echo "No Apple Development identity found; using a stable local development requirement."
+    codesign \
+        --force \
+        --deep \
+        --sign - \
+        --requirements '=designated => identifier "io.github.shadoprizm.Cursay"' \
+        "$APP_DIR"
+elif ! codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_DIR"; then
+    echo "The selected signing identity was unavailable; using a stable local development requirement."
+    codesign \
+        --force \
+        --deep \
+        --sign - \
+        --requirements '=designated => identifier "io.github.shadoprizm.Cursay"' \
+        "$APP_DIR"
+fi
 
 echo "Built $APP_DIR"
 echo "Open it with: open '$APP_DIR'"

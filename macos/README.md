@@ -23,7 +23,7 @@ cd macos
 open dist/Cursay.app
 ```
 
-The script runs the Swift tests, builds a release binary, assembles `Cursay.app`, and applies a local ad-hoc signature.
+The script runs the Swift tests, builds a release binary, and assembles `Cursay.app`. It uses an installed Apple Development signing identity when available so macOS can retain Accessibility consent across local rebuilds. When that identity is unavailable, the local ad-hoc fallback embeds a stable Cursay designated requirement instead of using a one-build code hash.
 
 On first launch, macOS will ask for microphone access. Automatic paste also needs Cursay enabled in **System Settings → Privacy & Security → Accessibility**. Cursay copies the result even when Accessibility access is unavailable.
 
@@ -49,4 +49,4 @@ The first transcription downloads the configured Whisper model. Leave the servic
 
 ## Distribution
 
-The local build is intentionally ad-hoc signed. Sharing it with other Macs requires an Apple Developer ID certificate, hardened-runtime signing, and Apple notarization. The source does not enable the App Sandbox because global paste automation depends on Accessibility permission.
+Sharing the app with other Macs requires an Apple Developer ID certificate, hardened-runtime signing, and Apple notarization. The source does not enable the App Sandbox because global paste automation depends on Accessibility permission.

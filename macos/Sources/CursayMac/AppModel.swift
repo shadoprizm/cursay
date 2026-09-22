@@ -71,7 +71,7 @@ final class AppModel: ObservableObject {
     private let transcriptionClient = TranscriptionClient()
     private let hotKey = GlobalHotKey()
     private var historyStore: HistoryStore?
-    private var recordingTarget: NSRunningApplication?
+    private var recordingTarget: PasteTarget?
     private var shortcutHeld = false
 
     init() {
@@ -94,6 +94,12 @@ final class AppModel: ObservableObject {
             shortcutRegistered = false
             phase = .failed(error.localizedDescription)
             logger.error("Global shortcut registration failed: \(error.localizedDescription, privacy: .public)")
+        }
+
+        let accessibilityAllowed = pasteController.isAccessibilityTrusted
+        logger.notice("Accessibility permission allowed: \(accessibilityAllowed, privacy: .public)")
+        if settings.autoPaste && !accessibilityAllowed {
+            pasteController.requestAccessibilityAccess()
         }
 
         Task {
@@ -138,8 +144,7 @@ final class AppModel: ObservableObject {
 
     func startRecording() {
         guard !phase.isBusy else { return }
-        let frontmost = NSWorkspace.shared.frontmostApplication
-        recordingTarget = frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : frontmost
+        recordingTarget = pasteController.captureTarget()
         do {
             try recorder.start()
             phase = .recording
