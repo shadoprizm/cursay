@@ -1,6 +1,6 @@
 [project]
 name = "cursay"
-version = "1.2.0"
+version = "1.2.1"
 description = "Free, local-first, system-wide dictation for Ubuntu GNOME"
 readme = "README.md"
 license = "MIT"

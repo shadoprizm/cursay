@@ -29,7 +29,7 @@ Releases are built from a clean `main` checkout after CI passes.
 After the release commit is merged and CI is green:
 
 ```bash
-version=1.2.0
+version=1.2.1
 git switch main
 git pull --ff-only
 git tag -s "v${version}" -m "Cursay ${version}"

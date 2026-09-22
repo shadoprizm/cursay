@@ -14,7 +14,7 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(__version__, package_version)
 
     def test_release_version(self) -> None:
-        self.assertEqual(__version__, "1.2.0")
+        self.assertEqual(__version__, "1.2.1")
 
     def test_backend_version_matches_runtime(self) -> None:
         backend_file = Path(__file__).resolve().parents[1] / "backend" / "server.py"

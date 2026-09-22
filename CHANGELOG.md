@@ -2,6 +2,17 @@
 
 All notable user-facing changes to Cursay are documented here.
 
+## 1.2.1 - 2026-09-22
+
+### Added
+
+- Added a fully pinned, hash-verified lockfile for the bundled transcription backend.
+
+### Changed
+
+- The installer now enforces the locked backend dependency set.
+- Linked the canonical [Cursay website](https://cursay.com/) from the README and GitHub repository homepage.
+
 ## 1.2.0 - 2026-09-22
 
 ### Added
