@@ -6,6 +6,8 @@ All notable user-facing changes to Cursay are documented here.
 
 ### Added
 
+- Added a native macOS developer preview with push-to-talk dictation, automatic paste, local history, and a menu-bar controller.
+- Added Prompt writing mode for turning spoken intent into a ready-to-paste AI prompt.
 - Added optional Smart Polish rewriting with distinct Professional and Casual styles.
 - Added visible fallback messaging when Smart Polish is unavailable.
 - Added local transcription-cost insights with provider/model breakdowns.

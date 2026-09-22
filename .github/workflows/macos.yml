@@ -1,0 +1,24 @@
+name: macOS Build
+
+on:
+  push:
+    paths:
+      - "macos/**"
+      - "assets/cursay.svg"
+      - ".github/workflows/macos.yml"
+  pull_request:
+    paths:
+      - "macos/**"
+      - "assets/cursay.svg"
+      - ".github/workflows/macos.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test and build app bundle
+        run: ./macos/scripts/build-app.sh

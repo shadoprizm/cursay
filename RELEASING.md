@@ -17,6 +17,8 @@ Releases are built from a clean `main` checkout after CI passes.
    git diff --check
    ```
 
+   Changes under `macos/` must also pass the macOS workflow, which runs the Swift tests and assembles the app bundle on a GitHub-hosted Mac.
+
 4. Test a fresh install and an upgrade on supported Ubuntu releases. Exercise local transcription,
    Smart Polish success and fallback, automatic paste, and `./install.sh --skip-backend`.
 

@@ -1,6 +1,6 @@
 # Cursay for Mac
 
-This is the native macOS companion to the Ubuntu Cursay app. It uses SwiftUI, AppKit, AVFoundation, and the existing OpenAI-compatible Cursay transcription API.
+This is the developer preview of the native macOS companion to the Ubuntu Cursay app. It uses SwiftUI, AppKit, AVFoundation, and the existing OpenAI-compatible Cursay transcription API. It is not yet a signed or notarized public release.
 
 ## Included in the first native build
 

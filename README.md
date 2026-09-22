@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/shadoprizm/cursay/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/shadoprizm/cursay/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/shadoprizm/cursay/actions/workflows/macos.yml"><img alt="macOS build" src="https://github.com/shadoprizm/cursay/actions/workflows/macos.yml/badge.svg"></a>
   <a href="https://github.com/shadoprizm/cursay/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/shadoprizm/cursay?display_name=tag"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-5bd6ae.svg"></a>
   <img alt="macOS" src="https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white">
@@ -25,6 +26,11 @@
 Cursay turns your voice into text in the application you are already using. Hold the global shortcut, dictate for as long as you need, and release. Cursay transcribes the recording, cleans the text, verifies the clipboard, and pastes it at your cursor.
 
 It is built for people who want a free, native Wispr Flow-style workflow without sending every thought through a subscription service.
+
+| Platform | Status | Start here |
+|---|---|---|
+| Ubuntu GNOME on Wayland | Stable — current release: **1.2.0** | [Install on Ubuntu](#install-on-ubuntu) |
+| macOS 13+ | Developer preview — build from source | [Mac build guide](macos/README.md) |
 
 ## The whole interaction
 
@@ -40,7 +46,7 @@ Silence does not end the recording. Releasing the shortcut does.
 
 - **System-wide:** dictate into browsers, chat apps, editors, terminals, and documents.
 - **Local by default:** faster-whisper runs on your machine after a one-time model download.
-- **Private history:** searchable transcripts stay in your Linux account.
+- **Private history:** searchable transcripts stay on your device.
 - **Cost visibility:** Insights estimates known provider charges from recorded audio duration and uses exact
   provider-reported costs when available.
 - **Strict push-to-talk:** recording follows the key press instead of guessing when you finished speaking.
@@ -53,7 +59,7 @@ Silence does not end the recording. Releasing the shortcut does.
 
 ## Build on macOS
 
-The native SwiftUI Mac app includes a menu-bar controller, **Ctrl + Space** push-to-talk (with a conflict-safe fallback), native microphone capture, automatic paste, private local history, and the same cleanup modes as the Ubuntu app.
+The native SwiftUI Mac app includes a menu-bar controller, **Ctrl + Space** push-to-talk (with a conflict-safe fallback), native microphone capture, automatic paste, private local history, and professional, casual, code, and raw cleanup modes. It is currently a developer preview rather than a signed public release.
 
 On macOS 13 or newer with Xcode 15 or newer:
 
@@ -95,7 +101,7 @@ Ubuntu will request administrator authentication to install that narrow rule. Wi
 ./install.sh --skip-backend   # use an existing compatible STT endpoint
 ```
 
-## What happens to your data
+## Ubuntu data
 
 | Data | Default location | Policy |
 |---|---|---|
@@ -146,7 +152,7 @@ The style picker has two kinds of behavior:
 
 Smart polish is disabled by default because its privacy depends on the text endpoint you configure. The Dictate screen shows whether it is active and reports a visible fallback when that service is unavailable.
 
-## Diagnostics
+## Ubuntu diagnostics
 
 ```bash
 ~/.local/opt/cursay/bin/cursay --check
@@ -154,13 +160,6 @@ Smart polish is disabled by default because its privacy depends on the text endp
 systemctl --user status cursay.service cursay-input.service cursay-stt.service
 journalctl --user -u cursay.service -n 100 --no-pager
 ```
-
-## macOS status
-
-A native macOS client is under active development in [`macos/`](macos/README.md). It currently provides the
-SwiftUI application foundation, strict push-to-talk shortcut handling, microphone capture, compatible endpoint
-transcription, Keychain-backed credentials, verified clipboard paste, and local history. It is not yet a public
-Apple release; native local Whisper inference, Mac hardware testing, signing, and notarization remain release gates.
 
 ### Shortcut does nothing
 
@@ -176,11 +175,18 @@ Cursay does not use the Remote Desktop portal. An old experimental Local Flow pr
 
 ## Development
 
-The desktop application intentionally relies mostly on Ubuntu's system Python packages. Run the tests with:
+The Ubuntu application intentionally relies mostly on Ubuntu's system Python packages. Run its tests with:
 
 ```bash
 /usr/bin/python3 -m unittest discover -s tests -v
 /usr/bin/python3 bin/cursay --smoke-test
+```
+
+On macOS, run the Swift tests and assemble a local app bundle with:
+
+```bash
+cd macos
+./scripts/build-app.sh
 ```
 
 The local STT service has its own small dependency set in `backend/requirements.txt`.
