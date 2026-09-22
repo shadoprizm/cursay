@@ -2,7 +2,7 @@
 
 All notable user-facing changes to Cursay are documented here.
 
-## 1.2.0 - 2026-09-20
+## 1.2.0 - 2026-09-22
 
 ### Added
 
