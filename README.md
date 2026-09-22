@@ -7,7 +7,7 @@
 <p align="center"><strong>Speak. Your words appear at the cursor.</strong></p>
 
 <p align="center">
-  Free, open-source, system-wide dictation for Ubuntu.<br>
+  Free, open-source, system-wide dictation for macOS and Ubuntu.<br>
   Local by default. No subscription. No Remote Desktop permission.
 </p>
 
@@ -15,6 +15,7 @@
   <a href="https://github.com/shadoprizm/cursay/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/shadoprizm/cursay/actions/workflows/test.yml/badge.svg"></a>
   <a href="https://github.com/shadoprizm/cursay/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/shadoprizm/cursay?display_name=tag"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-5bd6ae.svg"></a>
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white">
   <img alt="Ubuntu" src="https://img.shields.io/badge/Ubuntu-GNOME%20%2B%20Wayland-E95420?logo=ubuntu&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white">
 </p>
@@ -23,7 +24,7 @@
 
 Cursay turns your voice into text in the application you are already using. Hold the global shortcut, dictate for as long as you need, and release. Cursay transcribes the recording, cleans the text, verifies the clipboard, and pastes it at your cursor.
 
-It is built for people who want a free, Linux-native Wispr Flow-style workflow without sending every thought through a subscription service.
+It is built for people who want a free, native Wispr Flow-style workflow without sending every thought through a subscription service.
 
 ## The whole interaction
 
@@ -49,6 +50,20 @@ Silence does not end the recording. Releasing the shortcut does.
 - **Useful cleanup:** professional, casual, prompt, code, and raw modes; optional filler-word removal and AI rewriting.
 - **Comfortable appearance:** follows your system light/dark preference, with a manual override.
 - **Backend-friendly:** use the included local service or another OpenAI-compatible transcription endpoint.
+
+## Build on macOS
+
+The native SwiftUI Mac app includes a menu-bar controller, **Ctrl + Space** push-to-talk (with a conflict-safe fallback), native microphone capture, automatic paste, private local history, and the same cleanup modes as the Ubuntu app.
+
+On macOS 13 or newer with Xcode 15 or newer:
+
+```bash
+cd macos
+./scripts/build-app.sh
+open dist/Cursay.app
+```
+
+See the [Mac build guide](macos/README.md) for permissions, transcription-service setup, and distribution notes.
 
 ## Install on Ubuntu
 
