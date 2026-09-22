@@ -23,6 +23,15 @@ from .portals import GlobalShortcutPortal
 from .pricing import format_usd, reported_cost_usd
 from .storage import HistoryStore
 from .stt import TranscriptionError, health, transcribe
+from .updates import (
+    NoReleaseAvailable,
+    ReleaseInfo,
+    UpdateError,
+    consume_update_status,
+    fetch_latest_release,
+    is_newer_version,
+    launch_update,
+)
 
 
 LOG = logging.getLogger(__name__)
@@ -525,6 +534,27 @@ class CursayWindow(Adw.ApplicationWindow):
         engine.append(self.backend_health)
         content.append(engine)
 
+        updates = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        updates.add_css_class("card")
+        updates.append(
+            self._section_title(
+                "Application updates",
+                "Check for a Cursay release and install it after verifying its SHA-256 checksum. "
+                "Settings and history are preserved.",
+            )
+        )
+        update_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.update_status_label = Gtk.Label(label=f"Current version: {__version__}", xalign=0)
+        self.update_status_label.set_hexpand(True)
+        self.update_status_label.set_wrap(True)
+        self.update_status_label.add_css_class("muted")
+        update_row.append(self.update_status_label)
+        self.update_button = Gtk.Button(label="Check for updates")
+        self.update_button.connect("clicked", lambda *_: self.app.update_button_clicked())
+        update_row.append(self.update_button)
+        updates.append(update_row)
+        content.append(updates)
+
         danger = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         danger.add_css_class("card")
         about = Gtk.Label(label=f"Cursay {__version__}\nData: ~/.local/share/cursay", xalign=0)
@@ -641,6 +671,11 @@ class CursayWindow(Adw.ApplicationWindow):
 
     def toast(self, message: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=message, timeout=4))
+
+    def set_update_state(self, message: str, button_label: str, sensitive: bool = True) -> None:
+        self.update_status_label.set_label(message)
+        self.update_button.set_label(button_label)
+        self.update_button.set_sensitive(sensitive)
 
     def set_status(self, message: str) -> None:
         self.status_label.set_label(message)
@@ -779,6 +814,9 @@ class CursayApplication(Adw.Application):
         self.virtual_keyboard = VirtualKeyboard()
         self.shortcut_status = "Starting global shortcut…"
         self.shortcuts: GlobalShortcutPortal | None = None
+        self.available_update: ReleaseInfo | None = None
+        self.checking_for_update = False
+        self.pending_update_status = None if test_mode else consume_update_status()
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -807,6 +845,16 @@ class CursayApplication(Adw.Application):
                 assert self.shortcuts is not None
                 self.shortcuts.start(str(self.config["shortcut"]))
                 self.check_backend()
+            if self.pending_update_status is not None:
+                success, message = self.pending_update_status
+                self.window.set_update_state(
+                    message,
+                    "Check for updates",
+                )
+                self.window.toast(message)
+                if success:
+                    self.shortcut_status = f"Ready • Cursay {__version__} is up to date"
+                self.pending_update_status = None
         if self.test_mode:
             return
         self.window.present()
@@ -1089,6 +1137,94 @@ class CursayApplication(Adw.Application):
                 self.window.toast("Launch at login enabled" if enabled else "Launch at login disabled")
         elif self.window:
             self.window.toast((result.stderr or "Could not update startup setting").strip())
+
+    def update_button_clicked(self) -> None:
+        if self.available_update is None:
+            self.check_for_updates()
+            return
+        if not self.available_update.can_install:
+            try:
+                Gio.AppInfo.launch_default_for_uri(self.available_update.page_url, None)
+            except GLib.Error as exc:
+                if self.window:
+                    self.window.toast(f"Could not open the release page: {exc.message}")
+            return
+        if self.window:
+            self.window.set_update_state("Starting the updater…", "Starting…", False)
+        try:
+            launch_update(self.available_update)
+        except UpdateError as exc:
+            if self.window:
+                self.window.set_update_state(str(exc), "Try again", True)
+                self.window.toast(str(exc))
+            return
+        if self.window:
+            self.window.set_update_state(
+                "Downloading and installing the update. Cursay will restart when it is ready.",
+                "Updating…",
+                False,
+            )
+            self.window.toast("Update started. Cursay will restart automatically.")
+        GLib.timeout_add(1000, self._quit_for_update)
+
+    def _quit_for_update(self) -> bool:
+        self.quit()
+        return False
+
+    def check_for_updates(self) -> None:
+        if self.checking_for_update:
+            return
+        self.checking_for_update = True
+        self.available_update = None
+        if self.window:
+            self.window.set_update_state("Checking GitHub for the latest release…", "Checking…", False)
+
+        def worker() -> None:
+            try:
+                release = fetch_latest_release()
+                GLib.idle_add(self._update_checked, release, None)
+            except NoReleaseAvailable as exc:
+                GLib.idle_add(self._no_release_available, str(exc))
+            except UpdateError as exc:
+                GLib.idle_add(self._update_checked, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _no_release_available(self, message: str) -> bool:
+        self.checking_for_update = False
+        if self.window:
+            self.window.set_update_state(message, "Check again", True)
+        return False
+
+    def _update_checked(self, release: ReleaseInfo | None, error: str | None) -> bool:
+        self.checking_for_update = False
+        if not self.window:
+            return False
+        if error is not None or release is None:
+            self.window.set_update_state(error or "Could not check for updates", "Try again", True)
+            return False
+        try:
+            newer = is_newer_version(release.version, __version__)
+        except UpdateError as exc:
+            self.window.set_update_state(str(exc), "Try again", True)
+            return False
+        if not newer:
+            self.window.set_update_state(f"Cursay {__version__} is up to date.", "Check again", True)
+            return False
+        self.available_update = release
+        if release.can_install:
+            self.window.set_update_state(
+                f"Cursay {release.version} is available. The download will be verified before installation.",
+                f"Update to {release.version}",
+                True,
+            )
+        else:
+            self.window.set_update_state(
+                f"Cursay {release.version} is available, but its automatic-update files are not ready.",
+                "View release",
+                True,
+            )
+        return False
 
     def check_backend(self) -> None:
         def worker() -> None:

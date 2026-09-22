@@ -101,6 +101,10 @@ Ubuntu will request administrator authentication to install that narrow rule. Wi
 ./install.sh --skip-backend   # use an existing compatible STT endpoint
 ```
 
+Installed Ubuntu builds can check for updates from **Settings → Application updates**. Cursay downloads the
+versioned release archive and checksum from GitHub, verifies the archive before installation, preserves settings
+and history, and keeps your existing local-backend choice.
+
 ## Ubuntu data
 
 | Data | Default location | Policy |
