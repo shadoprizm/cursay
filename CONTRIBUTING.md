@@ -16,8 +16,10 @@ Cursay targets Ubuntu GNOME on Wayland and uses GTK 4, Libadwaita, PipeWire, the
 ```bash
 git clone https://github.com/shadoprizm/cursay.git
 cd cursay
+ruff check cursay backend tests
+bash -n install.sh uninstall.sh scripts/*.sh
 /usr/bin/python3 -m unittest discover -s tests -v
-/usr/bin/python3 bin/cursay --smoke-test
+xvfb-run -a /usr/bin/python3 bin/cursay --smoke-test
 ```
 
 Use `./install.sh --skip-model` to test the installed desktop integration without downloading a model immediately.

@@ -5,6 +5,7 @@ Describe the user-visible behavior and why it is needed.
 ## Verification
 
 - [ ] Unit tests pass
+- [ ] Python lint and shell syntax checks pass
 - [ ] UI smoke test passes
 - [ ] Long text remains wrapped inside the window
 - [ ] No new desktop permission is required, or the permission change is clearly explained

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import threading
@@ -17,10 +16,11 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import __version__
 from .audio import AudioError, PipeWireRecorder
-from .cleanup import clean_transcript, polish_transcript
+from .cleanup import PolishError, clean_transcript, polish_transcript, should_polish
 from .config import APPEARANCE_OPTIONS, APP_ID, APP_NAME, PROJECT_DIR, load_config, save_config
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
+from .pricing import format_usd, reported_cost_usd
 from .storage import HistoryStore
 from .stt import TranscriptionError, health, transcribe
 
@@ -157,6 +157,7 @@ class CursayWindow(Adw.ApplicationWindow):
     def __init__(self, application: "CursayApplication") -> None:
         super().__init__(application=application)
         self.app = application
+        self._syncing_polish_switches = False
         self.sync_theme(application.is_dark_theme())
         self.set_title(APP_NAME)
         self.set_default_size(1060, 720)
@@ -279,11 +280,30 @@ class CursayWindow(Adw.ApplicationWindow):
         mode_label = Gtk.Label(label="Writing style", xalign=0)
         mode_label.add_css_class("muted")
         mode_box.append(mode_label)
-        self.mode_dropdown = Gtk.DropDown.new_from_strings(["Professional", "Casual", "Code", "Raw"])
-        modes = ["professional", "casual", "code", "raw"]
+        self.mode_dropdown = Gtk.DropDown.new_from_strings(["Professional", "Casual", "Prompt", "Code", "Raw"])
+        modes = ["professional", "casual", "prompt", "code", "raw"]
         self.mode_dropdown.set_selected(max(0, modes.index(self.app.config.get("mode", "professional"))))
         self.mode_dropdown.connect("notify::selected", self._mode_changed)
         mode_box.append(self.mode_dropdown)
+
+        polish_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        polish_label = Gtk.Label(label="Smart polish", xalign=0)
+        polish_label.set_hexpand(True)
+        polish_row.append(polish_label)
+        self.dashboard_polish_switch = Gtk.Switch(
+            active=bool(self.app.config["smart_polish"]),
+            valign=Gtk.Align.CENTER,
+        )
+        self.dashboard_polish_switch.connect("notify::active", self._dashboard_polish_changed)
+        polish_row.append(self.dashboard_polish_switch)
+        mode_box.append(polish_row)
+
+        self.mode_detail = Gtk.Label(xalign=0)
+        self.mode_detail.set_wrap(True)
+        self.mode_detail.set_max_width_chars(44)
+        self.mode_detail.add_css_class("muted")
+        mode_box.append(self.mode_detail)
+        self._update_mode_detail()
         controls.append(mode_box)
         hero.append(controls)
 
@@ -356,7 +376,25 @@ class CursayWindow(Adw.ApplicationWindow):
         self.metric_dictations = self._metric(metrics, "Dictations")
         self.metric_words = self._metric(metrics, "Words")
         self.metric_minutes = self._metric(metrics, "Minutes")
+        self.metric_cost = self._metric(metrics, "Est. cost (USD)")
         content.append(metrics)
+        cost_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        cost_card.add_css_class("card")
+        cost_card.append(
+            self._section_title(
+                "Transcription cost",
+                "Provider charges derived from your locally stored usage. Local Whisper has no provider fee.",
+            )
+        )
+        self.cost_breakdown_label = Gtk.Label(label="No cost data yet.", xalign=0)
+        self.cost_breakdown_label.set_wrap(True)
+        self.cost_breakdown_label.add_css_class("muted")
+        cost_card.append(self.cost_breakdown_label)
+        self.cost_source_link = Gtk.LinkButton(label="View provider pricing")
+        self.cost_source_link.set_halign(Gtk.Align.START)
+        self.cost_source_link.set_visible(False)
+        cost_card.append(self.cost_source_link)
+        content.append(cost_card)
         filler_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         filler_card.add_css_class("card")
         filler_card.append(self._section_title("Filler words removed", "Cursay tracks only words it actually removed."))
@@ -449,9 +487,10 @@ class CursayWindow(Adw.ApplicationWindow):
         self.polish_switch = self._switch_row(
             behavior,
             "Smart polish",
-            "Optional OpenAI-compatible LLM refinement. Disabled by default and configured locally.",
+            "Uses the configured OpenAI-compatible text model for Professional, Casual, or Prompt rewrites. "
+            "Disabled by default; Code and Raw never use it.",
             bool(self.app.config["smart_polish"]),
-            lambda value: self.app.update_setting("smart_polish", value),
+            self._set_smart_polish,
         )
         self.recordings_switch = self._switch_row(
             behavior,
@@ -524,8 +563,61 @@ class CursayWindow(Adw.ApplicationWindow):
         return switch
 
     def _mode_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
-        modes = ["professional", "casual", "code", "raw"]
+        modes = ["professional", "casual", "prompt", "code", "raw"]
         self.app.update_setting("mode", modes[dropdown.get_selected()])
+        self._update_mode_detail()
+
+    def _dashboard_polish_changed(self, switch: Gtk.Switch, _param: Any) -> None:
+        self._set_smart_polish(switch.get_active())
+
+    def _set_smart_polish(self, enabled: bool) -> None:
+        if self._syncing_polish_switches:
+            return
+        self._syncing_polish_switches = True
+        try:
+            self.app.update_setting("smart_polish", enabled)
+            for name in ("dashboard_polish_switch", "polish_switch"):
+                switch = getattr(self, name, None)
+                if switch is not None and switch.get_active() != enabled:
+                    switch.set_active(enabled)
+            self._update_mode_detail()
+        finally:
+            self._syncing_polish_switches = False
+
+    def _update_mode_detail(self) -> None:
+        if not hasattr(self, "mode_detail"):
+            return
+        mode = str(self.app.config.get("mode", "professional"))
+        polish = bool(self.app.config.get("smart_polish", False))
+        if mode == "professional":
+            detail = (
+                "AI rewrite is on: concise workplace prose with complete grammar and punctuation."
+                if polish
+                else "Basic cleanup only. Turn on Smart polish for an actual professional rewrite."
+            )
+        elif mode == "casual":
+            detail = (
+                "AI rewrite is on: friendly conversational prose that keeps contractions and natural wording."
+                if polish
+                else "Basic cleanup only. Turn on Smart polish for an actual casual rewrite."
+            )
+        elif mode == "prompt":
+            detail = (
+                "AI rewrite is on: turns your spoken intent into a clear, ready-to-paste AI prompt."
+                if polish
+                else "Turn on Smart polish to transform your spoken words into an AI prompt."
+            )
+        elif mode == "code":
+            detail = (
+                "Converts spoken punctuation such as “open paren” and “new line.” "
+                "AI rewriting is not used."
+            )
+        else:
+            detail = (
+                "Keeps the transcript verbatim apart from outer whitespace. "
+                "Filler removal and AI rewriting are not used."
+            )
+        self.mode_detail.set_label(detail)
 
     def _appearance_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
         self.app.set_appearance(APPEARANCE_OPTIONS[dropdown.get_selected()])
@@ -622,6 +714,42 @@ class CursayWindow(Adw.ApplicationWindow):
         self.metric_dictations.set_label(f"{stats['dictations']:,}")
         self.metric_words.set_label(f"{stats['words']:,}")
         self.metric_minutes.set_label(f"{stats['seconds'] / 60:.1f}")
+        cost = stats["cost"]
+        if cost["complete"]:
+            cost_value = format_usd(cost["usd"])
+        elif cost["has_priced"]:
+            cost_value = f"{format_usd(cost['usd'])}+"
+        else:
+            cost_value = "—"
+        self.metric_cost.set_label(cost_value)
+        cost_lines = []
+        source_url = None
+        kind_labels = {
+            "estimated": "estimated",
+            "reported": "provider reported",
+            "mixed": "reported + estimated",
+            "partial": "partially reported",
+            "local": "local",
+            "unavailable": "rate unavailable",
+        }
+        for item in cost["breakdown"]:
+            amount = format_usd(item["cost_usd"]) if item["cost_usd"] is not None else "Cost unavailable"
+            cost_lines.append(
+                f"{item['provider']} · {item['model']}\n"
+                f"{amount} {kind_labels[item['kind']]}  •  {item['dictations']:,} dictations  •  "
+                f"{item['seconds'] / 60:.1f} min  •  {item['words']:,} words  •  {item['rate_label']}"
+            )
+            source_url = source_url or item["source_url"]
+        if cost_lines:
+            note = "Estimates use recorded audio duration; your provider invoice is the final authority."
+            if not cost["complete"]:
+                note += f" No published rate is configured for {cost['unpriced_seconds'] / 60:.1f} min."
+            self.cost_breakdown_label.set_label("\n\n".join(cost_lines) + f"\n\n{note}")
+        else:
+            self.cost_breakdown_label.set_label("Cost details will appear after your first dictation.")
+        self.cost_source_link.set_visible(bool(source_url))
+        if source_url:
+            self.cost_source_link.set_uri(source_url)
         if stats["fillers"]:
             self.filler_label.set_label("  •  ".join(f"{word}: {count}" for word, count in stats["fillers"]))
         else:
@@ -754,51 +882,72 @@ class CursayApplication(Adw.Application):
             raw = result["text"].strip()
             if not raw:
                 raise TranscriptionError("No speech was detected. Check the microphone and try again.")
+            mode = str(self.config["mode"])
             final, metadata = clean_transcript(
                 raw,
-                str(self.config["mode"]),
+                mode,
                 bool(self.config["remove_fillers"]),
             )
-            if bool(self.config["smart_polish"]):
-                final = polish_transcript(
-                    final,
-                    str(self.config["mode"]),
-                    str(self.config["polish_endpoint"]),
-                    str(self.config["polish_model"]),
-                )
+            polish_warning: str | None = None
+            if should_polish(mode, bool(self.config["smart_polish"])):
+                try:
+                    final = polish_transcript(
+                        final,
+                        mode,
+                        str(self.config["polish_endpoint"]),
+                        str(self.config["polish_model"]),
+                    )
+                except PolishError as exc:
+                    polish_warning = str(exc)
+                    LOG.warning("%s", polish_warning)
             recording_path = str(path) if bool(self.config["preserve_recordings"]) else None
             self.store.add(
                 raw_text=raw,
                 final_text=final,
-                mode=str(self.config["mode"]),
+                mode=mode,
                 language=str(result.get("language") or self.config["language"]),
                 duration_seconds=float(result.get("duration") or duration),
                 provider=str(result.get("provider") or "unknown"),
                 model=str(result.get("model") or self.config["stt_model"]),
                 fillers_removed=list(metadata["fillers_removed"]),
                 recording_path=recording_path,
+                cost_usd=reported_cost_usd(result),
             )
-            GLib.idle_add(self._completed, final, str(result.get("provider") or "speech service"))
+            GLib.idle_add(
+                self._completed,
+                final,
+                str(result.get("provider") or "speech service"),
+                polish_warning,
+            )
         except (TranscriptionError, OSError, ValueError) as exc:
             GLib.idle_add(self._failed, str(exc))
         finally:
             if not bool(self.config["preserve_recordings"]):
                 path.unlink(missing_ok=True)
 
-    def _completed(self, text: str, provider: str) -> bool:
+    def _completed(self, text: str, provider: str, polish_warning: str | None = None) -> bool:
         LOG.info("Dictation completed provider=%s words=%s", provider, len(text.split()))
         self.busy = False
         self.latest_text = text
         self.copy_text(text, quiet=True)
         if self.window:
             self.window.set_result(text)
-            self.window.set_status(f"Ready • last transcription: {provider}")
+            status = (
+                "Ready • basic cleanup used; Smart polish was unavailable"
+                if polish_warning
+                else f"Ready • last transcription: {provider}"
+            )
+            self.window.set_status(status)
             self.window.refresh_history()
+            if polish_warning:
+                self.window.toast(polish_warning)
         if bool(self.config["auto_paste"]):
             self.pending_auto_paste = True
             self.pending_auto_paste_text = text
             GLib.timeout_add(80, self._verify_clipboard_for_paste, 0)
         suffix = "Clipboard updated; automatic paste is queued." if self.pending_auto_paste else "Copied to the clipboard."
+        if polish_warning:
+            suffix += " Smart polish was unavailable, so basic cleanup was used."
         self.notify("Dictation ready", suffix)
         return False
 

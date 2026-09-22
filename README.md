@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/shadoprizm/cursay/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/shadoprizm/cursay/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/shadoprizm/cursay/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/shadoprizm/cursay?display_name=tag"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-5bd6ae.svg"></a>
   <img alt="Ubuntu" src="https://img.shields.io/badge/Ubuntu-GNOME%20%2B%20Wayland-E95420?logo=ubuntu&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white">
@@ -39,11 +40,13 @@ Silence does not end the recording. Releasing the shortcut does.
 - **System-wide:** dictate into browsers, chat apps, editors, terminals, and documents.
 - **Local by default:** faster-whisper runs on your machine after a one-time model download.
 - **Private history:** searchable transcripts stay in your Linux account.
+- **Cost visibility:** Insights estimates known provider charges from recorded audio duration and uses exact
+  provider-reported costs when available.
 - **Strict push-to-talk:** recording follows the key press instead of guessing when you finished speaking.
 - **Safe automatic paste:** Cursay confirms that the clipboard contains the new transcript before sending `Ctrl+V`.
 - **Wayland-native shortcut:** uses the Global Shortcuts portal instead of a keylogger.
 - **No Remote Desktop access:** paste is performed through a private keyboard-only `uinput` device.
-- **Useful cleanup:** professional, casual, code, and raw modes; optional filler-word removal.
+- **Useful cleanup:** professional, casual, prompt, code, and raw modes; optional filler-word removal and AI rewriting.
 - **Comfortable appearance:** follows your system light/dark preference, with a manual override.
 - **Backend-friendly:** use the included local service or another OpenAI-compatible transcription endpoint.
 
@@ -113,6 +116,21 @@ The included backend uses `faster-whisper` with the English `base.en` model on C
 
 Cursay can also call an OpenAI-compatible `/v1/audio/transcriptions` endpoint. Set `stt_endpoint` and `stt_model` in `~/.config/cursay/config.json`. When you choose a remote endpoint, audio is governed by that provider's privacy policy; the included backend remains entirely local after its model is downloaded.
 
+The Insights page shows a provider/model cost breakdown. xAI REST speech-to-text is estimated from locally
+recorded duration at its [published rate](https://docs.x.ai/developers/pricing); unknown custom providers are left
+unpriced rather than guessed. Provider invoices remain the final billing authority.
+
+## Writing styles
+
+The style picker has two kinds of behavior:
+
+- **Professional**, **Casual**, and **Prompt** always apply basic spacing, capitalization, and optional filler removal. Turn on **Smart polish** for a genuine rewrite through the OpenAI-compatible text endpoint configured by `polish_endpoint` and `polish_model`.
+- **Prompt** turns spoken intent into a ready-to-paste AI prompt. Simple requests stay concise; complex requests are organized by goal, context, requirements, constraints, and desired output when those details were actually spoken.
+- **Code** converts spoken tokens such as “open paren” and “new line” without sending the result through Smart polish.
+- **Raw** preserves the transcript apart from leading and trailing whitespace. It bypasses filler removal and Smart polish.
+
+Smart polish is disabled by default because its privacy depends on the text endpoint you configure. The Dictate screen shows whether it is active and reports a visible fallback when that service is unavailable.
+
 ## Diagnostics
 
 ```bash
@@ -121,6 +139,13 @@ Cursay can also call an OpenAI-compatible `/v1/audio/transcriptions` endpoint. S
 systemctl --user status cursay.service cursay-input.service cursay-stt.service
 journalctl --user -u cursay.service -n 100 --no-pager
 ```
+
+## macOS status
+
+A native macOS client is under active development in [`macos/`](macos/README.md). It currently provides the
+SwiftUI application foundation, strict push-to-talk shortcut handling, microphone capture, compatible endpoint
+transcription, Keychain-backed credentials, verified clipboard paste, and local history. It is not yet a public
+Apple release; native local Whisper inference, Mac hardware testing, signing, and notarization remain release gates.
 
 ### Shortcut does nothing
 
@@ -145,7 +170,7 @@ The desktop application intentionally relies mostly on Ubuntu's system Python pa
 
 The local STT service has its own small dependency set in `backend/requirements.txt`.
 
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and use [SECURITY.md](SECURITY.md) for vulnerability reports.
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, see [CHANGELOG.md](CHANGELOG.md) for release notes, and use [SECURITY.md](SECURITY.md) for vulnerability reports.
 
 ## Uninstall
 

@@ -104,6 +104,13 @@ if [ "$install_backend" = true ]; then
 fi
 
 systemctl --user stop cursay.service cursay-input.service cursay-stt.service 2>/dev/null || true
+if [ "$install_backend" = false ]; then
+    # An earlier installation may have enabled the bundled STT service. Remove
+    # that unit when switching to an external backend so it cannot restart at
+    # the next login and consume memory unexpectedly.
+    systemctl --user disable cursay-stt.service 2>/dev/null || true
+    rm -f -- "$systemd_dir/cursay-stt.service"
+fi
 if [ -d "$install_root" ]; then
     previous_root="${install_root}.previous"
     rm -rf -- "$previous_root"

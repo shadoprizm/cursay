@@ -12,10 +12,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Lint Python
+        uses: astral-sh/ruff-action@v4.1.0
+        with:
+          version: "0.16.7"
+          args: "check cursay backend tests"
       - name: Install desktop test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes python3-gi python3-dbus gir1.2-gtk-4.0 gir1.2-adw-1 xvfb
+      - name: Check shell syntax
+        run: bash -n install.sh uninstall.sh scripts/*.sh
       - name: Run unit tests
         run: xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v
       - name: Run UI smoke test

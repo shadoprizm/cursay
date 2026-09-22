@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config import DATABASE_FILE, ensure_directories
+from .pricing import summarize_costs
 
 
 SCHEMA = """
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS dictations (
     duration_seconds REAL NOT NULL DEFAULT 0,
     provider TEXT,
     model TEXT,
+    cost_usd REAL,
     word_count INTEGER NOT NULL DEFAULT 0,
     fillers_removed_json TEXT NOT NULL DEFAULT '[]',
     recording_path TEXT
@@ -37,6 +39,9 @@ class HistoryStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(dictations)")}
+            if "cost_usd" not in columns:
+                connection.execute("ALTER TABLE dictations ADD COLUMN cost_usd REAL")
         self.path.chmod(0o600)
 
     @contextmanager
@@ -60,6 +65,7 @@ class HistoryStore:
         model: str | None,
         fillers_removed: list[str] | None = None,
         recording_path: str | None = None,
+        cost_usd: float | None = None,
     ) -> int:
         created_at = datetime.now(timezone.utc).isoformat()
         with self.connect() as connection:
@@ -67,8 +73,8 @@ class HistoryStore:
                 """
                 INSERT INTO dictations (
                     created_at, raw_text, final_text, mode, language, duration_seconds,
-                    provider, model, word_count, fillers_removed_json, recording_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    provider, model, cost_usd, word_count, fillers_removed_json, recording_path
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     created_at,
@@ -79,6 +85,7 @@ class HistoryStore:
                     max(0.0, float(duration_seconds)),
                     provider,
                     model,
+                    max(0.0, float(cost_usd)) if cost_usd is not None else None,
                     len(final_text.split()),
                     json.dumps(fillers_removed or []),
                     recording_path,
@@ -123,6 +130,21 @@ class HistoryStore:
             filler_rows = connection.execute(
                 "SELECT fillers_removed_json FROM dictations ORDER BY created_at DESC LIMIT 500"
             ).fetchall()
+            cost_rows = connection.execute(
+                """
+                SELECT provider, model, COUNT(*) AS dictations,
+                       COALESCE(SUM(word_count), 0) AS words,
+                       COALESCE(SUM(duration_seconds), 0) AS seconds,
+                       COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN duration_seconds ELSE 0 END), 0)
+                           AS estimated_seconds,
+                       COALESCE(SUM(cost_usd), 0) AS reported_cost_usd,
+                       COALESCE(SUM(CASE WHEN cost_usd IS NOT NULL THEN 1 ELSE 0 END), 0)
+                           AS reported_count
+                FROM dictations
+                GROUP BY provider, model
+                ORDER BY seconds DESC
+                """
+            ).fetchall()
 
         filler_counts: dict[str, int] = {}
         for row in filler_rows:
@@ -141,4 +163,5 @@ class HistoryStore:
             "seconds": float(aggregate["seconds"]),
             "recent": [dict(row) for row in recent],
             "fillers": sorted(filler_counts.items(), key=lambda item: (-item[1], item[0]))[:10],
+            "cost": summarize_costs([dict(row) for row in cost_rows]),
         }

@@ -10,3 +10,5 @@ dist/
 build/
 *.deb
 *.wav
+macos/Cursay.xcodeproj/
+macos/DerivedData/
