@@ -40,7 +40,7 @@ enum AppPhase: Equatable {
 enum BackendState: Equatable {
     case checking
     case available
-    case unavailable
+    case unavailable(String)
 
     var label: String {
         switch self {
@@ -48,6 +48,11 @@ enum BackendState: Equatable {
         case .available: return "Connected"
         case .unavailable: return "Unavailable"
         }
+    }
+
+    var detail: String? {
+        if case let .unavailable(message) = self { return message }
+        return nil
     }
 }
 
@@ -62,13 +67,21 @@ final class AppModel: ObservableObject {
     @Published private(set) var shortcutRegistered = false
     @Published private(set) var shortcutLabel = "Ctrl + Space"
     @Published private(set) var launchAtLogin = false
+    @Published private(set) var cloudStatus = "Not linked"
+    @Published private(set) var cloudUsage = ""
+    @Published private(set) var cloudLinked = false
+    @Published private(set) var lastFallbackReason: String?
     @Published var searchQuery = ""
 
     let settings = AppSettings()
     let pasteController = PasteController()
+    let updates = UpdateController()
 
     private let recorder = AudioRecorder()
     private let transcriptionClient = TranscriptionClient()
+    private let polishClient = PolishClient()
+    private let cloudClient = CloudClient(baseURL: URL(string: "https://cursay.com")!)
+    private let localBackend = LocalBackendManager()
     private let hotKey = GlobalHotKey()
     private var historyStore: HistoryStore?
     private var recordingTarget: PasteTarget?
@@ -87,7 +100,9 @@ final class AppModel: ObservableObject {
         hotKey.onPressed = { [weak self] in self?.shortcutPressed() }
         hotKey.onReleased = { [weak self] in self?.shortcutReleased() }
         do {
-            shortcutLabel = try hotKey.registerPreferredShortcut()
+            let registered = try hotKey.register(settings.shortcut)
+            settings.shortcut = registered
+            shortcutLabel = registered.displayName
             shortcutRegistered = true
             logger.notice("Global shortcut registered: \(self.shortcutLabel, privacy: .public)")
         } catch {
@@ -106,6 +121,7 @@ final class AppModel: ObservableObject {
             let microphoneAllowed = await AudioRecorder.requestPermission()
             logger.notice("Microphone permission allowed: \(microphoneAllowed, privacy: .public)")
             await checkBackend()
+            await refreshCloudAccount()
         }
     }
 
@@ -190,13 +206,100 @@ final class AppModel: ObservableObject {
 
     func checkBackend() async {
         backendState = .checking
-        let available = await transcriptionClient.health(endpoint: settings.endpoint)
-        backendState = available ? .available : .unavailable
-        logger.notice("Transcription backend available: \(available, privacy: .public)")
+        if settings.provider == .cloud {
+            await refreshCloudAccount()
+            backendState = cloudLinked ? .available : .unavailable(cloudStatus)
+        } else {
+            do {
+                if settings.provider == .local {
+                    try await localBackend.ensureRunning(using: transcriptionClient)
+                } else if await transcriptionClient.health(endpoint: settings.endpoint) == false {
+                    throw LocalBackendError.serviceUnavailable
+                }
+                backendState = .available
+                logger.notice("Transcription backend available")
+            } catch {
+                backendState = .unavailable(error.localizedDescription)
+                logger.error("Transcription backend unavailable: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    func linkCloudDevice() {
+        cloudStatus = "Creating a secure linking code…"
+        Task {
+            do {
+                let authorization = try await cloudClient.beginLink()
+                cloudStatus = "Code \(authorization.userCode) — waiting for approval"
+                NSWorkspace.shared.open(authorization.verificationUriComplete)
+                let deadline = Date().addingTimeInterval(TimeInterval(authorization.expiresIn))
+                while Date() < deadline {
+                    try await Task.sleep(for: .seconds(max(2, authorization.interval)))
+                    if try await cloudClient.pollLink(deviceCode: authorization.deviceCode) {
+                        await refreshCloudAccount()
+                        return
+                    }
+                }
+                cloudStatus = "The linking code expired. Try again."
+            } catch {
+                cloudStatus = error.localizedDescription
+                cloudLinked = false
+            }
+        }
+    }
+
+    func refreshCloudAccount() async {
+        do {
+            let account = try await cloudClient.account()
+            cloudLinked = true
+            cloudStatus = "Linked · \(account.plan.capitalized) · \(account.deviceCount) of \(account.deviceLimit) devices"
+            cloudUsage = "\(account.remainingSeconds / 60) of \(account.allowanceSeconds / 60) cloud minutes remaining · Included in Pro"
+        } catch {
+            cloudLinked = false
+            cloudStatus = error.localizedDescription
+            cloudUsage = ""
+        }
+    }
+
+    func signOutCloud() {
+        Task {
+            do {
+                try await cloudClient.revokeAndSignOut()
+                cloudLinked = false
+                cloudStatus = "This Mac is signed out and revoked."
+                cloudUsage = ""
+                if settings.provider == .cloud { backendState = .unavailable("Link this Mac to use Cursay Cloud.") }
+            } catch {
+                phase = .failed(error.localizedDescription)
+            }
+        }
     }
 
     func requestAccessibilityAccess() {
         pasteController.requestAccessibilityAccess()
+    }
+
+    func setShortcut(_ choice: ShortcutChoice) {
+        let previous = settings.shortcut
+        do {
+            let registered = try hotKey.register(choice)
+            settings.shortcut = registered
+            shortcutLabel = registered.displayName
+            shortcutRegistered = true
+        } catch {
+            if let restored = try? hotKey.register(previous) {
+                settings.shortcut = restored
+                shortcutLabel = restored.displayName
+                shortcutRegistered = true
+            } else {
+                shortcutRegistered = false
+            }
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    func checkForUpdates() {
+        updates.checkForUpdates()
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -250,18 +353,62 @@ final class AppModel: ObservableObject {
         }
 
         do {
-            let result = try await transcriptionClient.transcribe(
-                audioURL: workingURL,
-                endpoint: settings.endpoint,
-                model: settings.model,
-                language: settings.language
-            )
+            let result: TranscriptionResult
+            var cloudSucceeded = false
+            lastFallbackReason = nil
+            switch settings.provider {
+            case .cloud:
+                do {
+                    result = try await cloudClient.transcribe(audioURL: workingURL, language: settings.language)
+                    cloudSucceeded = true
+                } catch {
+                    guard settings.cloudLocalFallback else { throw error }
+                    let cloudError = error
+                    try await localBackend.ensureRunning(using: transcriptionClient)
+                    lastFallbackReason = "Cursay Cloud was unavailable (\(cloudError.localizedDescription)). Local Whisper was used."
+                    result = try await transcriptionClient.transcribe(
+                        audioURL: workingURL,
+                        endpoint: LocalBackendManager.endpoint,
+                        model: "whisper-base.en",
+                        language: settings.language
+                    )
+                }
+            case .local:
+                try await localBackend.ensureRunning(using: transcriptionClient)
+                result = try await transcriptionClient.transcribe(
+                    audioURL: workingURL,
+                    endpoint: LocalBackendManager.endpoint,
+                    model: "whisper-base.en",
+                    language: settings.language
+                )
+            case .custom:
+                result = try await transcriptionClient.transcribe(
+                    audioURL: workingURL,
+                    endpoint: settings.endpoint,
+                    model: settings.model,
+                    language: settings.language
+                )
+            }
             let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let (final, metadata) = TranscriptCleaner.clean(
+            var (final, metadata) = TranscriptCleaner.clean(
                 raw,
                 mode: settings.mode,
                 removeFillers: settings.removeFillers
             )
+            if settings.smartPolish && [.professional, .casual, .prompt].contains(settings.mode) {
+                do {
+                    if cloudSucceeded, let grant = result.polishGrant {
+                        final = try await cloudClient.polish(text: final, style: settings.mode, grant: grant)
+                    } else if settings.provider != .cloud {
+                        final = try await polishClient.polish(
+                            final, mode: settings.mode, endpoint: settings.polishEndpoint, model: settings.polishModel
+                        )
+                    }
+                } catch {
+                    let notice = "Smart Polish was unavailable (\(error.localizedDescription)); basic cleanup was kept."
+                    lastFallbackReason = [lastFallbackReason, notice].compactMap { $0 }.joined(separator: " ")
+                }
+            }
             let entry = Dictation(
                 rawText: raw,
                 finalText: final,
@@ -269,9 +416,10 @@ final class AppModel: ObservableObject {
                 language: result.language ?? settings.language,
                 durationSeconds: result.duration ?? measuredDuration,
                 provider: result.provider ?? "speech service",
-                model: result.model ?? settings.model,
+                model: result.model ?? (settings.provider == .local ? "whisper-base.en" : settings.model),
                 fillersRemoved: metadata.fillersRemoved,
-                recordingPath: settings.preserveRecordings ? workingURL.path : nil
+                recordingPath: settings.preserveRecordings ? workingURL.path : nil,
+                costUsd: result.reportedCostUsd
             )
             history.insert(entry, at: 0)
             persistHistory()
@@ -286,6 +434,7 @@ final class AppModel: ObservableObject {
             }
             phase = .complete(pasted: pasted)
             logger.notice("Dictation completed; automatic paste succeeded: \(pasted, privacy: .public)")
+            if cloudSucceeded { await refreshCloudAccount() }
         } catch {
             phase = .failed(error.localizedDescription)
             logger.error("Dictation failed: \(error.localizedDescription, privacy: .public)")

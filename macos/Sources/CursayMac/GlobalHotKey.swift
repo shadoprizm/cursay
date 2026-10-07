@@ -26,7 +26,7 @@ final class GlobalHotKey {
     var onPressed: (() -> Void)?
     var onReleased: (() -> Void)?
 
-    func registerPreferredShortcut() throws -> String {
+    func register(_ preferred: ShortcutChoice) throws -> ShortcutChoice {
         unregister()
         var events = [
             EventTypeSpec(
@@ -55,17 +55,17 @@ final class GlobalHotKey {
             )
         }
 
-        let candidates: [(modifiers: UInt32, label: String)] = [
-            (UInt32(controlKey), "Ctrl + Space"),
-            (UInt32(controlKey | optionKey), "Ctrl + Option + Space"),
-        ]
+        var candidates = [preferred]
+        if preferred == .controlSpace {
+            candidates.append(.controlOptionSpace)
+        }
         var lastStatus = OSStatus(eventHotKeyExistsErr)
         for (index, candidate) in candidates.enumerated() {
             var candidateRef: EventHotKeyRef?
             let hotKeyID = EventHotKeyID(signature: fourCharacterCode("CRSY"), id: UInt32(index + 1))
             lastStatus = RegisterEventHotKey(
                 UInt32(kVK_Space),
-                candidate.modifiers,
+                modifiers(for: candidate),
                 hotKeyID,
                 GetApplicationEventTarget(),
                 0,
@@ -74,7 +74,7 @@ final class GlobalHotKey {
             if lastStatus == noErr {
                 hotKeyRef = candidateRef
                 isRegistered = true
-                return candidate.label
+                return candidate
             }
         }
         unregister()
@@ -111,5 +111,14 @@ final class GlobalHotKey {
 
     private func fourCharacterCode(_ value: String) -> OSType {
         value.utf8.reduce(0) { ($0 << 8) + OSType($1) }
+    }
+
+    private func modifiers(for choice: ShortcutChoice) -> UInt32 {
+        switch choice {
+        case .controlSpace: return UInt32(controlKey)
+        case .controlOptionSpace: return UInt32(controlKey | optionKey)
+        case .optionSpace: return UInt32(optionKey)
+        case .commandShiftSpace: return UInt32(cmdKey | shiftKey)
+        }
     }
 }

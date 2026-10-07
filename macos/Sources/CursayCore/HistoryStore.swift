@@ -74,7 +74,8 @@ public final class HistoryStore {
             dictations: dictations.count,
             words: dictations.reduce(0) { $0 + $1.wordCount },
             seconds: dictations.reduce(0) { $0 + $1.durationSeconds },
-            fillers: fillers
+            fillers: fillers,
+            cost: TranscriptionPricing.summarize(dictations)
         )
     }
 }

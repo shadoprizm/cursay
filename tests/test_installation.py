@@ -14,6 +14,7 @@ class InstallationTests(unittest.TestCase):
             PROJECT_DIR / "install.sh",
             PROJECT_DIR / "uninstall.sh",
             *sorted((PROJECT_DIR / "scripts").glob("*.sh")),
+            *sorted((PROJECT_DIR / "macos" / "scripts").glob("*.sh")),
         ]
         result = subprocess.run(
             ["bash", "-n", *(str(path) for path in scripts)],
@@ -43,6 +44,25 @@ class InstallationTests(unittest.TestCase):
         for requirement in direct_requirements:
             self.assertIn(f"{requirement} \\", lock)
         self.assertNotIn(">=", lock)
+
+    def test_macos_bundle_contains_and_launches_local_backend(self) -> None:
+        build_app = (PROJECT_DIR / "macos" / "scripts" / "build-app.sh").read_text(encoding="utf-8")
+        app_model = (PROJECT_DIR / "macos" / "Sources" / "CursayMac" / "AppModel.swift").read_text(
+            encoding="utf-8"
+        )
+        backend_manager = (
+            PROJECT_DIR / "macos" / "Sources" / "CursayMac" / "LocalBackendManager.swift"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('build-backend.sh', build_app)
+        self.assertIn('$RESOURCES_DIR/CursaySTT', build_app)
+        self.assertIn("install_name_tool -add_rpath '@executable_path/../Frameworks'", build_app)
+        build_backend = (PROJECT_DIR / "macos" / "scripts" / "build-backend.sh").read_text(encoding="utf-8")
+        self.assertIn("--require-hashes", build_backend)
+        self.assertIn("backend/requirements.lock", build_backend)
+        self.assertIn('localBackend.ensureRunning', app_model)
+        self.assertIn('Bundle.main.resourceURL', backend_manager)
+        self.assertIn('--parent-pid', backend_manager)
 
 
 if __name__ == "__main__":

@@ -13,3 +13,7 @@ build/
 *.wav
 macos/Cursay.xcodeproj/
 macos/DerivedData/
+macos/.backend-build/
+windows/artifacts/
+windows/**/bin/
+windows/**/obj/

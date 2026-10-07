@@ -11,11 +11,17 @@ let package = Package(
         .library(name: "CursayCore", targets: ["CursayCore"]),
         .executable(name: "Cursay", targets: ["CursayMac"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    ],
     targets: [
         .target(name: "CursayCore"),
         .executableTarget(
             name: "CursayMac",
-            dependencies: ["CursayCore"]
+            dependencies: [
+                "CursayCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ]
         ),
         .testTarget(
             name: "CursayCoreTests",

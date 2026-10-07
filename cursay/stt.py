@@ -10,7 +10,11 @@ from typing import Any
 
 
 class TranscriptionError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status: int | None = None, code: str | None = None, fallback: str | None = None):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.fallback = fallback
 
 
 def _multipart(fields: dict[str, str], path: Path) -> tuple[bytes, str]:
@@ -45,6 +49,8 @@ def transcribe(
     model: str,
     language: str = "en",
     timeout: float = 150.0,
+    bearer_token: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     if not path.is_file():
         raise TranscriptionError(f"Audio file does not exist: {path}")
@@ -52,10 +58,15 @@ def transcribe(
     if language and language.lower() != "auto":
         fields["language"] = language
     body, boundary = _multipart(fields, path)
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     request = urllib.request.Request(
         endpoint,
         data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -63,7 +74,21 @@ def transcribe(
             result = json.load(response)
     except urllib.error.HTTPError as exc:
         message = exc.read().decode("utf-8", errors="replace")[:500]
-        raise TranscriptionError(f"Speech service returned HTTP {exc.code}: {message}") from exc
+        code = None
+        fallback = None
+        try:
+            detail = json.loads(message).get("error", {})
+            code = detail.get("code")
+            fallback = detail.get("fallback")
+            message = detail.get("message") or message
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        raise TranscriptionError(
+            f"Speech service returned HTTP {exc.code}: {message}",
+            status=exc.code,
+            code=code,
+            fallback=fallback,
+        ) from exc
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise TranscriptionError(f"Speech service is unavailable: {exc}") from exc
 

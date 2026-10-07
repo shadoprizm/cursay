@@ -1,21 +1,23 @@
 # Cursay for Mac
 
-This is the developer preview of the native macOS companion to the Ubuntu Cursay app. It uses SwiftUI, AppKit, AVFoundation, and the existing OpenAI-compatible Cursay transcription API. It is not yet a signed or notarized public release.
+This is the native macOS companion to the Ubuntu Cursay app. It uses SwiftUI, AppKit, AVFoundation, Keychain, and the same local/custom/cloud service contracts as Ubuntu. The tagged-release workflow produces a Developer ID-signed, notarized, stapled distribution.
 
 ## Included in the first native build
 
 - Menu-bar app and full dashboard
-- Global **Ctrl + Space** push-to-talk shortcut with a **Ctrl + Option + Space** fallback when macOS reserves the preferred shortcut
+- Configurable global push-to-talk shortcut with a conflict-safe fallback
 - Native 16 kHz mono microphone recording
 - Automatic copy and optional paste into the previously active app
-- Professional, casual, code, and raw cleanup modes
-- Searchable private history and local insights
-- Configurable transcription endpoint, model, and language
+- Professional, casual, prompt, code, and raw cleanup modes
+- Searchable private history, local cost insights, and system/light/dark appearance options
+- Local Whisper, optional Cursay Cloud, and configurable custom transcription
+- Smart Polish, Pro usage reporting, secure browser linking, device revocation, and local fallback
 - Optional audio retention and launch at login
+- Sparkle 2 update checks with an EdDSA-signed appcast
 
 ## Build on your Mac
 
-Requirements: macOS 13 or newer and Xcode 15 or newer.
+Requirements: macOS 13 or newer, Xcode 15 or newer, and Python 3.10 or newer. Release automation uses Python 3.12.
 
 ```bash
 cd macos
@@ -23,7 +25,7 @@ cd macos
 open dist/Cursay.app
 ```
 
-The script runs the Swift tests, builds a release binary, and assembles `Cursay.app`. It uses an installed Apple Development signing identity when available so macOS can retain Accessibility consent across local rebuilds. When that identity is unavailable, the local ad-hoc fallback embeds a stable Cursay designated requirement instead of using a one-build code hash.
+The script runs the Swift tests, builds the native app and a self-contained faster-whisper helper, and assembles `Cursay.app`. It uses an installed Apple Development signing identity when available so macOS can retain Accessibility consent across local rebuilds. When that identity is unavailable, the local ad-hoc fallback embeds a stable Cursay designated requirement instead of using a one-build code hash.
 
 On first launch, macOS will ask for microphone access. Automatic paste also needs Cursay enabled in **System Settings → Privacy & Security → Accessibility**. Cursay copies the result even when Accessibility access is unavailable.
 
@@ -35,18 +37,19 @@ The default endpoint is:
 http://127.0.0.1:8765/v1/audio/transcriptions
 ```
 
-It matches the Python backend in this repository. To run that private local service in a Terminal window:
+It matches the Python backend in this repository. The app starts the bundled helper automatically when Local Whisper is selected and stops it when the app exits. The first local transcription downloads the configured Whisper model to `~/Library/Application Support/Cursay/Models`. You can instead choose Cursay Cloud or a compatible Custom service in Settings; custom audio is governed by that service's privacy policy. The custom health check expects `/health` at the service root.
+
+Selecting Cursay Cloud opens the browser-based device linking flow. Access and refresh tokens are kept only in a This-Device-Only Keychain item. Cloud failure, quota exhaustion, and subscription failure retain the recording long enough to try Local Whisper when fallback is enabled.
+
+## Signed distribution
+
+The source does not enable the App Sandbox because global paste automation depends on Accessibility permission. Release builds do use the hardened runtime and the minimum audio-input entitlement.
+
+For a local release build, set `CURSAY_VERSION`, `CURSAY_BUILD_NUMBER`, `CURSAY_CODESIGN_IDENTITY`, `CURSAY_SPARKLE_PUBLIC_KEY`, and either an `APPLE_NOTARY_KEYCHAIN_PROFILE` or the three Apple notary credential variables, then run:
 
 ```bash
-cd /path/to/cursay
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r backend/requirements.txt
-python -m uvicorn server:app --app-dir backend --host 127.0.0.1 --port 8765
+./scripts/release-dmg.sh
+SPARKLE_PRIVATE_KEY_FILE=/secure/path/to/eddsa-private-key ./scripts/generate-appcast.sh
 ```
 
-The first transcription downloads the configured Whisper model. Leave the service running while using this first Mac build. You can instead change the endpoint in Cursay Settings to another compatible service; audio is then governed by that service's privacy policy. The health check expects `/health` at the service root.
-
-## Distribution
-
-Sharing the app with other Macs requires an Apple Developer ID certificate, hardened-runtime signing, and Apple notarization. The source does not enable the App Sandbox because global paste automation depends on Accessibility permission.
+The release script notarizes and staples both the app and signed DMG, validates Gatekeeper, and emits SHA-256 files. GitHub Actions performs the same flow for `v*` tags and uploads the DMG, ZIP, checksums, and signed `appcast.xml` to the matching GitHub Release.

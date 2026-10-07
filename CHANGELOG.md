@@ -2,6 +2,20 @@
 
 All notable user-facing changes to Cursay are documented here.
 
+## Unreleased
+
+### Added
+
+- Added optional Cursay Pro accounts with managed cloud transcription, Smart Polish, monthly usage reporting, browser-based device linking, secure token rotation, device revocation, and local fallback on Ubuntu and macOS.
+- Added the Next.js account website and metadata-only cloud API backed by Clerk, Stripe, Neon, and Vercel AI Gateway with per-request zero data retention.
+- Added subscription trials, fixed monthly/annual checkout, Customer Portal access, signature-verified webhook entitlements, monthly quotas, concurrency limits, and one-use polish grants.
+- Added macOS Prompt mode and Smart Polish parity, Keychain-backed Pro linking, Sparkle 2 updates, and Developer ID signing/notarization/DMG release automation.
+- Added a self-contained macOS Local Whisper helper that starts on demand, exits with the app, and stores models in Application Support.
+- Added macOS transcription-cost insights, appearance selection, configurable global shortcuts, and actionable connection diagnostics.
+- Added a native Windows 10/11 x64 app with Ctrl + Space push-to-talk, microphone capture, safe automatic paste, searchable local history, insights, settings, and notification-area controls.
+- Added a self-contained Windows installer containing the local faster-whisper service, plus SHA-256 checksum generation.
+- Added Windows build and test automation.
+
 ## 1.2.1 - 2026-09-22
 
 ### Added
