@@ -92,6 +92,7 @@ final class AppModel: ObservableObject {
     private var recordingTarget: PasteTarget?
     private var shortcutHeld = false
     private var backendCheckGeneration = 0
+    private var cloudPreflight: CloudTranscriptionPreflight?
 
     init() {
         do {
@@ -169,6 +170,10 @@ final class AppModel: ObservableObject {
         recordingTarget = pasteController.captureTarget()
         do {
             try recorder.start()
+            if settings.provider == .cloud {
+                let client = cloudClient
+                cloudPreflight = CloudTranscriptionPreflight { try await client.account() }
+            }
             phase = .recording
             logger.notice("Recording started")
         } catch {
@@ -187,6 +192,8 @@ final class AppModel: ObservableObject {
                 await process(recordingURL: recording.url, measuredDuration: recording.duration)
             }
         } catch {
+            cloudPreflight?.cancel()
+            cloudPreflight = nil
             phase = .failed(error.localizedDescription)
             logger.error("Recording failed to stop: \(error.localizedDescription, privacy: .public)")
         }
@@ -386,6 +393,12 @@ final class AppModel: ObservableObject {
     }
 
     private func process(recordingURL: URL, measuredDuration: Double) async {
+        let preflight = cloudPreflight
+        cloudPreflight = nil
+        defer { preflight?.cancel() }
+        let processingStarted = ContinuousClock.now
+        var transcriptionFinished = processingStarted
+        var polishFinished = processingStarted
         var workingURL = recordingURL
         if settings.preserveRecordings {
             do {
@@ -404,7 +417,9 @@ final class AppModel: ObservableObject {
             switch settings.provider {
             case .cloud:
                 do {
-                    result = try await cloudClient.transcribe(audioURL: workingURL, language: settings.language)
+                    result = try await cloudClient.transcribe(
+                        audioURL: workingURL, language: settings.language, preflight: preflight
+                    )
                     cloudSucceeded = true
                 } catch {
                     guard settings.cloudLocalFallback else { throw error }
@@ -434,6 +449,7 @@ final class AppModel: ObservableObject {
                     language: settings.language
                 )
             }
+            transcriptionFinished = .now
             let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             var (final, metadata) = TranscriptCleaner.clean(
                 raw,
@@ -454,6 +470,7 @@ final class AppModel: ObservableObject {
                     lastFallbackReason = [lastFallbackReason, notice].compactMap { $0 }.joined(separator: " ")
                 }
             }
+            polishFinished = .now
             let entry = Dictation(
                 rawText: raw,
                 finalText: final,
@@ -479,6 +496,10 @@ final class AppModel: ObservableObject {
             }
             phase = .complete(pasted: pasted)
             logger.notice("Dictation completed; automatic paste succeeded: \(pasted, privacy: .public)")
+            let sttTime = processingStarted.duration(to: transcriptionFinished)
+            let polishTime = transcriptionFinished.duration(to: polishFinished)
+            let totalTime = processingStarted.duration(to: .now)
+            logger.notice("Dictation timing; speech: \(String(describing: sttTime), privacy: .public), polish: \(String(describing: polishTime), privacy: .public), total: \(String(describing: totalTime), privacy: .public)")
             if cloudSucceeded { await refreshCloudAccount() }
         } catch {
             phase = .failed(error.localizedDescription)
