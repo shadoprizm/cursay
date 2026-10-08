@@ -6,6 +6,7 @@ All notable user-facing changes to Cursay are documented here.
 
 ### Fixed
 
+- Start the Mac cloud access check during recording so short dictations can upload immediately after releasing the shortcut; recheck access for long recordings and record stage timings without dictated content.
 - Require an active Pro entitlement and available cloud allowance before marking managed cloud ready or uploading audio; show an upgrade action for free accounts and explain local fallback.
 - Handle Option + Space directly with existing Accessibility access, including either key-release order and recovery after sleep or an event-handler timeout.
 - Keep Cursay in the window title on every page.

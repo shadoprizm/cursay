@@ -153,8 +153,14 @@ public actor CloudClient {
         return try await authorizedRequest("/api/v1/account", tokens: tokens)
     }
 
-    public func transcribe(audioURL: URL, language: String) async throws -> TranscriptionResult {
-        try await account().requireTranscriptionAccess()
+    public func transcribe(
+        audioURL: URL, language: String, preflight: CloudTranscriptionPreflight? = nil
+    ) async throws -> TranscriptionResult {
+        if let preflight {
+            try await preflight.requireAccess { try await self.account() }
+        } else {
+            try await account().requireTranscriptionAccess()
+        }
         var tokens = try await validTokens()
         let idempotencyKey = UUID().uuidString
         do {
