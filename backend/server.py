@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -19,12 +20,17 @@ DEFAULT_LANGUAGE = os.getenv("CURSAY_LANGUAGE", "en")
 THREADS = int(os.getenv("CURSAY_THREADS", str(max(1, min(8, os.cpu_count() or 4)))))
 BEAM_SIZE = int(os.getenv("CURSAY_BEAM_SIZE", "1"))
 MAX_BYTES = int(os.getenv("CURSAY_MAX_AUDIO_BYTES", str(50 * 1024 * 1024)))
-MODEL_DIR = Path(
-    os.getenv(
-        "CURSAY_MODEL_DIR",
-        Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local/share")) / "cursay" / "models",
-    )
-)
+
+
+def _default_model_dir() -> Path:
+    if os.name == "nt":
+        return Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData/Local")) / "Cursay" / "Models"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Cursay" / "Models"
+    return Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local/share")) / "cursay" / "models"
+
+
+MODEL_DIR = Path(os.getenv("CURSAY_MODEL_DIR", _default_model_dir()))
 
 app = FastAPI(title="Cursay Speech-to-Text", version="1.2.1")
 _lock = threading.Lock()

@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from . import __version__
 from .audio import AudioError, PipeWireRecorder
 from .cleanup import PolishError, clean_transcript, polish_transcript, should_polish
+from .cloud import CloudClient, CloudError, SecureStorageUnavailable, cloud_access_error
 from .config import APPEARANCE_OPTIONS, APP_ID, APP_NAME, PROJECT_DIR, load_config, save_config
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
@@ -355,7 +357,7 @@ class CursayWindow(Adw.ApplicationWindow):
         privacy.append(
             self._section_title(
                 "Designed for privacy",
-                "History stays in your account. Local Whisper remains available if cloud transcription is unavailable.",
+                "History stays on this device. Local Whisper remains available if cloud transcription is unavailable.",
             )
         )
         content.append(privacy)
@@ -519,20 +521,68 @@ class CursayWindow(Adw.ApplicationWindow):
 
         engine = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         engine.add_css_class("card")
-        engine.append(self._section_title("Transcription engine", "Local Whisper by default; custom compatible endpoints are supported."))
+        engine.append(self._section_title("Transcription engine", "Local Whisper stays free and unlimited. Cursay Cloud is included in Pro."))
         backend_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         backend_label = Gtk.Label(label="Provider", xalign=0)
         backend_label.set_hexpand(True)
         backend_row.append(backend_label)
-        self.backend_dropdown = Gtk.DropDown.new_from_strings(["Automatic", "Local Whisper"])
-        self.backend_dropdown.set_selected(1 if self.app.config["stt_model"] == "whisper-base.en" else 0)
+        self.backend_dropdown = Gtk.DropDown.new_from_strings(["Local Whisper", "Cursay Cloud", "Custom"])
+        providers = ["local", "cloud", "custom"]
+        provider = str(self.app.config.get("stt_provider", "local"))
+        self.backend_dropdown.set_selected(providers.index(provider) if provider in providers else 0)
         self.backend_dropdown.connect("notify::selected", self._backend_changed)
         backend_row.append(self.backend_dropdown)
         engine.append(backend_row)
         self.backend_health = Gtk.Label(label="Checking service…", xalign=0)
         self.backend_health.add_css_class("muted")
         engine.append(self.backend_health)
+
+        custom_endpoint_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        custom_endpoint_label = Gtk.Label(label="Custom STT endpoint", xalign=0)
+        custom_endpoint_label.set_hexpand(True)
+        custom_endpoint_row.append(custom_endpoint_label)
+        self.custom_endpoint_entry = Gtk.Entry(text=str(self.app.config["stt_endpoint"]))
+        self.custom_endpoint_entry.set_hexpand(True)
+        self.custom_endpoint_entry.connect(
+            "notify::text", lambda entry, _param: self.app.update_setting("stt_endpoint", entry.get_text())
+        )
+        custom_endpoint_row.append(self.custom_endpoint_entry)
+        engine.append(custom_endpoint_row)
+
+        custom_model_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        custom_model_label = Gtk.Label(label="Custom model", xalign=0)
+        custom_model_label.set_hexpand(True)
+        custom_model_row.append(custom_model_label)
+        self.custom_model_entry = Gtk.Entry(text=str(self.app.config["stt_model"]))
+        self.custom_model_entry.set_hexpand(True)
+        self.custom_model_entry.connect(
+            "notify::text", lambda entry, _param: self.app.update_setting("stt_model", entry.get_text())
+        )
+        custom_model_row.append(self.custom_model_entry)
+        engine.append(custom_model_row)
         content.append(engine)
+
+        cloud = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        cloud.add_css_class("card")
+        cloud.append(self._section_title("Cursay Pro", "Managed cloud transcription and Smart Polish. Tokens stay in GNOME Secret Service."))
+        self.cloud_status = Gtk.Label(label="Checking account…", xalign=0)
+        self.cloud_status.set_wrap(True)
+        self.cloud_status.add_css_class("muted")
+        cloud.append(self.cloud_status)
+        self.cloud_usage = Gtk.Label(label="", xalign=0)
+        self.cloud_usage.add_css_class("muted")
+        cloud.append(self.cloud_usage)
+        cloud_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.cloud_link_button = Gtk.Button(label="Link this device")
+        self.cloud_link_button.connect("clicked", lambda *_: self.app.link_cloud_device())
+        cloud_actions.append(self.cloud_link_button)
+        self.cloud_billing_button = Gtk.LinkButton(uri=f"{self.app.config['cloud_base_url']}/account", label="Upgrade to Pro")
+        cloud_actions.append(self.cloud_billing_button)
+        self.cloud_sign_out_button = Gtk.Button(label="Sign out and revoke")
+        self.cloud_sign_out_button.connect("clicked", lambda *_: self.app.sign_out_cloud())
+        cloud_actions.append(self.cloud_sign_out_button)
+        cloud.append(cloud_actions)
+        content.append(cloud)
 
         updates = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         updates.add_css_class("card")
@@ -597,6 +647,18 @@ class CursayWindow(Adw.ApplicationWindow):
         self.app.update_setting("mode", modes[dropdown.get_selected()])
         self._update_mode_detail()
 
+    def _backend_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
+        providers = ["local", "cloud", "custom"]
+        self.app.update_setting("stt_provider", providers[dropdown.get_selected()])
+        self.app.check_backend()
+
+    def set_cloud_account(self, message: str, usage: str = "", linked: bool = False, upgrade_required: bool = False) -> None:
+        self.cloud_status.set_label(message)
+        self.cloud_usage.set_label(usage)
+        self.cloud_link_button.set_visible(not linked)
+        self.cloud_sign_out_button.set_visible(linked)
+        self.cloud_billing_button.set_label("Upgrade to Pro" if upgrade_required or not linked else "Manage billing")
+
     def _dashboard_polish_changed(self, switch: Gtk.Switch, _param: Any) -> None:
         self._set_smart_polish(switch.get_active())
 
@@ -651,11 +713,6 @@ class CursayWindow(Adw.ApplicationWindow):
 
     def _appearance_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
         self.app.set_appearance(APPEARANCE_OPTIONS[dropdown.get_selected()])
-
-    def _backend_changed(self, dropdown: Gtk.DropDown, _param: Any) -> None:
-        model = "whisper-base.en" if dropdown.get_selected() == 1 else "cursay-stt-auto"
-        self.app.update_setting("stt_model", model)
-        self.app.check_backend()
 
     def _page_changed(self, _stack: Gtk.Stack, _param: Any) -> None:
         name = self.stack.get_visible_child_name()
@@ -817,6 +874,7 @@ class CursayApplication(Adw.Application):
         self.available_update: ReleaseInfo | None = None
         self.checking_for_update = False
         self.pending_update_status = None if test_mode else consume_update_status()
+        self.cloud = CloudClient(str(self.config.get("cloud_base_url", "https://cursay.com")))
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -845,6 +903,7 @@ class CursayApplication(Adw.Application):
                 assert self.shortcuts is not None
                 self.shortcuts.start(str(self.config["shortcut"]))
                 self.check_backend()
+                self.check_cloud_account()
             if self.pending_update_status is not None:
                 success, message = self.pending_update_status
                 self.window.set_update_state(
@@ -920,13 +979,36 @@ class CursayApplication(Adw.Application):
 
     def _process_recording(self, path: Path, duration: float) -> None:
         try:
-            LOG.info("Transcribing %.2fs of audio with model=%s", duration, self.config["stt_model"])
-            result = transcribe(
-                path,
-                str(self.config["stt_endpoint"]),
-                str(self.config["stt_model"]),
-                str(self.config["language"]),
-            )
+            configured_provider = str(self.config.get("stt_provider", "local"))
+            LOG.info("Transcribing %.2fs of audio with provider=%s", duration, configured_provider)
+            transcription_warning: str | None = None
+            if configured_provider == "cloud":
+                try:
+                    result = self.cloud.transcribe(path, str(self.config["language"]))
+                except (CloudError, TranscriptionError) as cloud_exc:
+                    if not bool(self.config.get("cloud_local_fallback", True)):
+                        raise TranscriptionError(f"Cursay Cloud failed: {cloud_exc}") from cloud_exc
+                    result = transcribe(
+                        path,
+                        str(self.config["local_stt_endpoint"]),
+                        str(self.config["local_stt_model"]),
+                        str(self.config["language"]),
+                    )
+                    transcription_warning = f"Cursay Cloud was unavailable ({cloud_exc}). Local Whisper was used."
+            elif configured_provider == "local":
+                result = transcribe(
+                    path,
+                    str(self.config["local_stt_endpoint"]),
+                    str(self.config["local_stt_model"]),
+                    str(self.config["language"]),
+                )
+            else:
+                result = transcribe(
+                    path,
+                    str(self.config["stt_endpoint"]),
+                    str(self.config["stt_model"]),
+                    str(self.config["language"]),
+                )
             raw = result["text"].strip()
             if not raw:
                 raise TranscriptionError("No speech was detected. Check the microphone and try again.")
@@ -936,18 +1018,24 @@ class CursayApplication(Adw.Application):
                 mode,
                 bool(self.config["remove_fillers"]),
             )
-            polish_warning: str | None = None
+            polish_warning: str | None = transcription_warning
             if should_polish(mode, bool(self.config["smart_polish"])):
-                try:
-                    final = polish_transcript(
-                        final,
-                        mode,
-                        str(self.config["polish_endpoint"]),
-                        str(self.config["polish_model"]),
-                    )
-                except PolishError as exc:
-                    polish_warning = str(exc)
-                    LOG.warning("%s", polish_warning)
+                if configured_provider == "cloud" and result.get("polish_grant"):
+                    try:
+                        final = self.cloud.polish(final, mode, str(result["polish_grant"]))
+                    except CloudError as exc:
+                        polish_warning = f"{polish_warning + ' ' if polish_warning else ''}{exc} Basic cleanup was kept."
+                elif configured_provider != "cloud":
+                    try:
+                        final = polish_transcript(
+                            final,
+                            mode,
+                            str(self.config["polish_endpoint"]),
+                            str(self.config["polish_model"]),
+                        )
+                    except PolishError as exc:
+                        polish_warning = str(exc)
+                        LOG.warning("%s", polish_warning)
             recording_path = str(path) if bool(self.config["preserve_recordings"]) else None
             self.store.add(
                 raw_text=raw,
@@ -956,7 +1044,9 @@ class CursayApplication(Adw.Application):
                 language=str(result.get("language") or self.config["language"]),
                 duration_seconds=float(result.get("duration") or duration),
                 provider=str(result.get("provider") or "unknown"),
-                model=str(result.get("model") or self.config["stt_model"]),
+                model=str(result.get("model") or (
+                    self.config["local_stt_model"] if configured_provider == "local" else self.config["stt_model"]
+                )),
                 fillers_removed=list(metadata["fillers_removed"]),
                 recording_path=recording_path,
                 cost_usd=reported_cost_usd(result),
@@ -967,7 +1057,7 @@ class CursayApplication(Adw.Application):
                 str(result.get("provider") or "speech service"),
                 polish_warning,
             )
-        except (TranscriptionError, OSError, ValueError) as exc:
+        except (CloudError, TranscriptionError, OSError, ValueError) as exc:
             GLib.idle_add(self._failed, str(exc))
         finally:
             if not bool(self.config["preserve_recordings"]):
@@ -981,7 +1071,7 @@ class CursayApplication(Adw.Application):
         if self.window:
             self.window.set_result(text)
             status = (
-                "Ready • basic cleanup used; Smart polish was unavailable"
+                "Ready • fallback or basic cleanup was used"
                 if polish_warning
                 else f"Ready • last transcription: {provider}"
             )
@@ -1098,6 +1188,92 @@ class CursayApplication(Adw.Application):
     def update_setting(self, key: str, value: Any) -> None:
         self.config[key] = value
         save_config(self.config)
+
+    def link_cloud_device(self) -> None:
+        if self.window:
+            self.window.set_cloud_account("Creating a secure linking code…")
+
+        def worker() -> None:
+            try:
+                authorization = self.cloud.begin_link()
+                GLib.idle_add(self._cloud_link_started, authorization)
+                deadline = time.monotonic() + float(authorization.get("expires_in", 600))
+                interval = max(2.0, float(authorization.get("interval", 5)))
+                while time.monotonic() < deadline:
+                    time.sleep(interval)
+                    tokens = self.cloud.poll_link(str(authorization["device_code"]))
+                    if tokens is not None:
+                        account = self.cloud.account()
+                        GLib.idle_add(self._cloud_account_result, account)
+                        return
+                raise CloudError("The linking code expired. Start again.")
+            except (CloudError, SecureStorageUnavailable, KeyError, ValueError) as exc:
+                GLib.idle_add(self._cloud_account_error, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _cloud_link_started(self, authorization: dict[str, Any]) -> bool:
+        code = str(authorization.get("user_code", ""))
+        if self.window:
+            self.window.set_cloud_account(f"Enter code {code} in the browser. Waiting for approval…")
+        try:
+            Gio.AppInfo.launch_default_for_uri(str(authorization["verification_uri_complete"]), None)
+        except GLib.Error:
+            if self.window:
+                self.window.toast(f"Open {authorization.get('verification_uri')} and enter {code}")
+        return False
+
+    def check_cloud_account(self) -> None:
+        def worker() -> None:
+            try:
+                account = self.cloud.account()
+                GLib.idle_add(self._cloud_account_result, account)
+            except (CloudError, SecureStorageUnavailable) as exc:
+                GLib.idle_add(self._cloud_account_error, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _cloud_account_result(self, account: dict[str, Any]) -> bool:
+        remaining = int(account.get("remaining_seconds", 0)) // 60
+        allowance = int(account.get("allowance_seconds", 0)) // 60
+        plan = str(account.get("plan", "free")).title()
+        access_error = cloud_access_error(account)
+        upgrade_required = access_error is not None and access_error.code == "subscription_required"
+        if self.window:
+            self.window.set_cloud_account(
+                f"Linked • {plan} • {account.get('device_count', 0)} of {account.get('device_limit', 3)} devices",
+                str(access_error) if access_error else f"{remaining:,} of {allowance:,} cloud minutes remaining",
+                linked=True,
+                upgrade_required=upgrade_required,
+            )
+            if str(self.config.get("stt_provider")) == "cloud":
+                if access_error:
+                    message = str(access_error)
+                    if bool(self.config.get("cloud_local_fallback", True)):
+                        message += " Dictation will use free Local Whisper."
+                    self.window.backend_health.set_label(message)
+                    if upgrade_required:
+                        self.window.toast("Cursay Cloud requires Pro. Choose Upgrade to Pro or use free Local Whisper.")
+                else:
+                    self.window.backend_health.set_label(f"Cursay Cloud ready • {remaining:,} minutes remaining")
+        return False
+
+    def _cloud_account_error(self, message: str) -> bool:
+        if self.window:
+            self.window.set_cloud_account(message, linked=False)
+            if str(self.config.get("stt_provider")) == "cloud":
+                self.window.backend_health.set_label(f"Cursay Cloud needs attention • {message}")
+        return False
+
+    def sign_out_cloud(self) -> None:
+        try:
+            self.cloud.revoke_and_sign_out()
+        except SecureStorageUnavailable as exc:
+            self._show_error(str(exc))
+            return
+        if self.window:
+            self.window.set_cloud_account("This device is signed out and revoked.", linked=False)
+            self.window.toast("Cursay Cloud device revoked")
 
     def is_dark_theme(self) -> bool:
         return bool(self.style_manager and self.style_manager.get_dark())
@@ -1227,8 +1403,18 @@ class CursayApplication(Adw.Application):
         return False
 
     def check_backend(self) -> None:
+        provider = str(self.config.get("stt_provider", "local"))
+        if provider == "cloud":
+            self.check_cloud_account()
+            return
+
         def worker() -> None:
-            result = health(str(self.config["stt_endpoint"]))
+            endpoint = (
+                str(self.config["local_stt_endpoint"])
+                if provider == "local"
+                else str(self.config["stt_endpoint"])
+            )
+            result = health(endpoint)
             GLib.idle_add(self._backend_checked, result)
 
         threading.Thread(target=worker, daemon=True).start()

@@ -13,16 +13,18 @@
 </p>
 
 <p align="center">
-  Free, open-source, system-wide dictation for macOS and Ubuntu.<br>
-  Local by default. No subscription. No Remote Desktop permission.
+  Free, open-source, system-wide dictation for Windows, macOS, and Ubuntu.<br>
+  Unlimited local dictation, with optional Cursay Pro cloud quality. No Remote Desktop permission.
 </p>
 
 <p align="center">
   <a href="https://github.com/shadoprizm/cursay/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/shadoprizm/cursay/actions/workflows/test.yml/badge.svg"></a>
   <a href="https://github.com/shadoprizm/cursay/actions/workflows/macos.yml"><img alt="macOS build" src="https://github.com/shadoprizm/cursay/actions/workflows/macos.yml/badge.svg"></a>
+  <a href="https://github.com/shadoprizm/cursay/actions/workflows/windows.yml"><img alt="Windows build" src="https://github.com/shadoprizm/cursay/actions/workflows/windows.yml/badge.svg"></a>
   <a href="https://github.com/shadoprizm/cursay/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/shadoprizm/cursay?display_name=tag"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-5bd6ae.svg"></a>
   <img alt="macOS" src="https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2B-0078D4?logo=windows&logoColor=white">
   <img alt="Ubuntu" src="https://img.shields.io/badge/Ubuntu-GNOME%20%2B%20Wayland-E95420?logo=ubuntu&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white">
 </p>
@@ -31,12 +33,13 @@
 
 Cursay turns your voice into text in the application you are already using. Hold the global shortcut, dictate for as long as you need, and release. Cursay transcribes the recording, cleans the text, verifies the clipboard, and pastes it at your cursor.
 
-It is built for people who want a free, native Wispr Flow-style workflow without sending every thought through a subscription service.
+It is built for people who want a free, native Wispr Flow-style workflow without requiring an account or sending every thought through a subscription service. Cursay Pro is an optional managed-cloud path; it never replaces unlimited local dictation.
 
 | Platform | Status | Start here |
 |---|---|---|
 | Ubuntu GNOME on Wayland | Stable — current release: **1.2.1** | [Install on Ubuntu](#install-on-ubuntu) |
-| macOS 13+ | Developer preview — build from source | [Mac build guide](macos/README.md) |
+| Windows 10/11 x64 | Native release — build artifact | [Windows guide](windows/README.md) |
+| macOS 13+ | Native app — signed release pipeline | [Mac build guide](macos/README.md) |
 
 ## The whole interaction
 
@@ -52,6 +55,7 @@ Silence does not end the recording. Releasing the shortcut does.
 
 - **System-wide:** dictate into browsers, chat apps, editors, terminals, and documents.
 - **Local by default:** faster-whisper runs on your machine after a one-time model download.
+- **Optional Pro cloud:** managed multilingual transcription and Smart Polish with a 1,500-minute monthly allowance and local fallback.
 - **Private history:** searchable transcripts stay on your device.
 - **Cost visibility:** Insights estimates known provider charges from recorded audio duration and uses exact
   provider-reported costs when available.
@@ -65,9 +69,9 @@ Silence does not end the recording. Releasing the shortcut does.
 
 ## Build on macOS
 
-The native SwiftUI Mac app includes a menu-bar controller, **Ctrl + Space** push-to-talk (with a conflict-safe fallback), native microphone capture, automatic paste, private local history, and professional, casual, code, and raw cleanup modes. It is currently a developer preview rather than a signed public release.
+The native SwiftUI Mac app includes a menu-bar controller, configurable push-to-talk shortcuts, native microphone capture, automatic paste, private local history and cost insights, appearance controls, all five writing modes, Smart Polish, and the same Local Whisper, Cursay Cloud, and Custom provider choices as Ubuntu. Local Whisper is bundled and starts on demand. Tagged releases are built as hardened-runtime, Developer ID-signed, notarized, stapled DMGs with signed Sparkle updates.
 
-On macOS 13 or newer with Xcode 15 or newer:
+On macOS 13 or newer with Xcode 15 or newer and Python 3.10 or newer:
 
 ```bash
 cd macos
@@ -76,6 +80,12 @@ open dist/Cursay.app
 ```
 
 See the [Mac build guide](macos/README.md) for permissions, transcription-service setup, and distribution notes.
+
+## Install on Windows
+
+Download and run `Cursay-<version>-windows-x64-setup.exe` from the matching release. The per-user installer includes the native app and private local speech service. Cursay lives in the notification area and uses **Ctrl + Space** for push-to-talk.
+
+The first local dictation downloads the English `base.en` Whisper model. Windows may ask you to allow microphone access for desktop apps. See the [Windows guide](windows/README.md) for build instructions, data locations, and current limitations.
 
 ## Install on Ubuntu
 
@@ -143,6 +153,10 @@ The shortcut portal can observe only Cursay's approved shortcut. The paste devic
 
 ## Transcription choices
 
+Choose **Local Whisper**, **Cursay Cloud**, or **Custom** in Settings. Local Whisper remains free, unlimited, accountless, and entirely on-device after the model download. Cursay Cloud is included in the optional [$8/month or $80/year Pro plan](https://cursay.com/pricing), includes 1,500 minutes in each monthly service window, and falls back to Local Whisper when enabled.
+
+Ubuntu stores Pro device tokens only in GNOME Secret Service, which requires `secret-tool` from the optional `libsecret-tools` package. macOS stores them only in Keychain. Cursay does not fall back to a plaintext token file.
+
 The included backend uses `faster-whisper` with the English `base.en` model on CPU. To use a different model or language, edit the Cursay STT user service or the settings file.
 
 Cursay can also call an OpenAI-compatible `/v1/audio/transcriptions` endpoint. Set `stt_endpoint` and `stt_model` in `~/.config/cursay/config.json`. When you choose a remote endpoint, audio is governed by that provider's privacy policy; the included backend remains entirely local after its model is downloaded.
@@ -160,7 +174,7 @@ The style picker has two kinds of behavior:
 - **Code** converts spoken tokens such as “open paren” and “new line” without sending the result through Smart polish.
 - **Raw** preserves the transcript apart from leading and trailing whitespace. It bypasses filler removal and Smart polish.
 
-Smart polish is disabled by default because its privacy depends on the text endpoint you configure. The Dictate screen shows whether it is active and reports a visible fallback when that service is unavailable.
+Smart polish is disabled by default. With Local Whisper or Custom, its privacy depends on the text endpoint you configure. With Cursay Cloud it uses the one-use polish grant from the immediately preceding cloud transcription. The Dictate screen shows whether it is active and reports a visible fallback when that service is unavailable.
 
 ## Ubuntu diagnostics
 
@@ -198,6 +212,14 @@ On macOS, run the Swift tests and assemble a local app bundle with:
 cd macos
 ./scripts/build-app.sh
 ```
+
+On Windows, run the .NET tests and build the self-contained installer with:
+
+```powershell
+.\windows\scripts\build.ps1
+```
+
+The account website and managed API live in `website/`. See [CONTRIBUTING.md](CONTRIBUTING.md) for its Next.js, Neon, Stripe, Clerk, and AI Gateway development checks.
 
 The local STT service declares its direct dependencies in `backend/requirements.txt` and installs the fully pinned,
 hash-verified dependency set from `backend/requirements.lock`.

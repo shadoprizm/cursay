@@ -27,7 +27,9 @@ public struct TranscriptionClient: Sendable {
         audioURL: URL,
         endpoint: String,
         model: String,
-        language: String
+        language: String,
+        bearerToken: String? = nil,
+        idempotencyKey: String? = nil
     ) async throws -> TranscriptionResult {
         guard let url = URL(string: endpoint),
               let scheme = url.scheme?.lowercased(),
@@ -56,18 +58,27 @@ public struct TranscriptionClient: Sendable {
         request.httpMethod = "POST"
         request.timeoutInterval = 150
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let bearerToken {
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        }
+        if let idempotencyKey {
+            request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        }
         let (data, response) = try await URLSession.shared.upload(for: request, from: body)
         guard let http = response as? HTTPURLResponse else {
             throw TranscriptionError.invalidResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            let message = String(data: Data(data.prefix(500)), encoding: .utf8) ?? "Unknown error"
+            let envelope = try? JSONDecoder().decode(ServiceErrorEnvelope.self, from: data)
+            let message = envelope?.error.message ?? String(data: Data(data.prefix(500)), encoding: .utf8) ?? "Unknown error"
             throw TranscriptionError.service(statusCode: http.statusCode, message: message)
         }
 
         let result: TranscriptionResult
         do {
-            result = try JSONDecoder().decode(TranscriptionResult.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            result = try decoder.decode(TranscriptionResult.self, from: data)
         } catch {
             throw TranscriptionError.invalidResponse
         }
@@ -92,6 +103,11 @@ public struct TranscriptionClient: Sendable {
             return false
         }
     }
+}
+
+private struct ServiceErrorEnvelope: Decodable {
+    struct Detail: Decodable { let message: String }
+    let error: Detail
 }
 
 private extension Data {

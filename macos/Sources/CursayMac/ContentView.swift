@@ -24,6 +24,7 @@ private enum AppSection: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @ObservedObject var settings: AppSettings
     @State private var selection: AppSection? = .dictate
 
     var body: some View {
@@ -61,6 +62,15 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .tint(Color(red: 0.21, green: 0.72, blue: 0.57))
+        .preferredColorScheme(preferredColorScheme)
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch settings.appearance {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
     }
 }
 
@@ -72,6 +82,11 @@ private struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 hero
+                if let reason = model.lastFallbackReason {
+                    Label(reason, systemImage: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(.orange)
+                        .cursayCard()
+                }
                 latestResult
                 privacyCard
             }
@@ -80,7 +95,8 @@ private struct DashboardView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("Dictate")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("Dictate")
     }
 
     private var hero: some View {
@@ -122,6 +138,24 @@ private struct DashboardView: View {
                 }
                 .pickerStyle(.menu)
                 .frame(width: 190)
+            }
+
+            Toggle("Smart Polish", isOn: $settings.smartPolish)
+                .toggleStyle(.switch)
+            Text(settings.provider == .cloud ? (model.cloudAccess == .available ? "Cloud Smart Polish is included in Pro." : "Cloud Smart Polish requires an active Pro plan or trial.") : "Uses your configured compatible text endpoint.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let notice = model.cloudAccessNotice {
+                Label(notice, systemImage: "lock.fill")
+                    .font(.callout)
+                HStack {
+                    if model.cloudAccess == .upgradeRequired {
+                        Button("Upgrade to Pro") { model.openCloudUpgrade() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    Button("Use Local Whisper") { model.selectProvider(.local) }
+                }
             }
 
             Label(model.phase.statusText, systemImage: statusIcon)
@@ -180,7 +214,9 @@ private struct DashboardView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Designed for privacy")
                     .font(.headline)
-                Text("History stays in ~/Library/Application Support/Cursay. Audio is deleted unless you choose to keep it.")
+                Text(settings.provider == .cloud
+                    ? "History stays on this Mac. Audio is sent only for the request and is not stored by Cursay Cloud."
+                    : "History stays in ~/Library/Application Support/Cursay. Audio is deleted unless you choose to keep it.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -250,7 +286,8 @@ private struct HistoryView: View {
             }
         }
         .searchable(text: $model.searchQuery, prompt: "Search your dictations")
-        .navigationTitle("History")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("History")
         .toolbar {
             if !model.history.isEmpty {
                 Button("Clear History", role: .destructive) {
@@ -271,7 +308,39 @@ private struct InsightsView: View {
                     metric("Dictations", value: "\(model.stats.dictations)", icon: "waveform")
                     metric("Words", value: "\(model.stats.words)", icon: "text.word.spacing")
                     metric("Minutes", value: String(format: "%.1f", model.stats.seconds / 60), icon: "clock")
+                    metric("Est. cost", value: model.stats.cost.formattedTotal, icon: "dollarsign.circle")
                 }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Transcription cost")
+                        .font(.title3.weight(.semibold))
+                    if model.stats.cost.breakdown.isEmpty {
+                        Text("Cost details will appear after your first dictation.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(model.stats.cost.breakdown) { item in
+                            HStack(alignment: .firstTextBaseline) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(item.provider) · \(item.model)")
+                                    Text("\(String(format: "%.1f", item.seconds / 60)) min · \(item.detail)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(item.costUsd.map { CostSummary.formatUSD($0) } ?? "Unavailable")
+                                    .fontWeight(.semibold)
+                            }
+                            if let sourceURL = item.sourceURL {
+                                Link("View provider pricing", destination: sourceURL)
+                                    .font(.caption)
+                            }
+                        }
+                        Text("Estimates use recorded audio duration; your provider invoice is the final authority.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .cursayCard()
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Filler words removed")
@@ -297,7 +366,8 @@ private struct InsightsView: View {
             .frame(maxWidth: 920)
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .navigationTitle("Insights")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("Insights")
     }
 
     private func metric(_ title: String, value: String, icon: String) -> some View {
@@ -334,10 +404,33 @@ private struct SettingsView: View {
             }
 
             Section("Transcription service") {
-                TextField("Endpoint", text: $settings.endpoint)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Model", text: $settings.model)
-                    .textFieldStyle(.roundedBorder)
+                Picker("Provider", selection: Binding(
+                    get: { settings.provider },
+                    set: { model.selectProvider($0) }
+                )) {
+                    ForEach(TranscriptionProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                if settings.provider == .custom {
+                    TextField("Endpoint", text: $settings.endpoint)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Model", text: $settings.model)
+                        .textFieldStyle(.roundedBorder)
+                }
+                if settings.provider == .cloud {
+                    if let notice = model.cloudAccessNotice {
+                        Text(notice).foregroundStyle(.secondary)
+                    }
+                    if model.cloudAccess == .upgradeRequired {
+                        Button("Upgrade to Pro") { model.openCloudUpgrade() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    Toggle("Fall back to Local Whisper", isOn: $settings.cloudLocalFallback)
+                    Text("Managed cloud requires an active Pro plan or trial. No overage charges.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 LabeledContent("Status") {
                     HStack(spacing: 7) {
                         Circle()
@@ -346,12 +439,62 @@ private struct SettingsView: View {
                         Text(model.backendState.label)
                     }
                 }
+                if let detail = model.backendState.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button("Check connection") {
                     Task { await model.checkBackend() }
                 }
             }
 
+            Section("Smart Polish") {
+                Toggle("Enable Smart Polish", isOn: $settings.smartPolish)
+                if settings.provider != .cloud {
+                    TextField("Compatible text endpoint", text: $settings.polishEndpoint)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Polish model", text: $settings.polishModel)
+                        .textFieldStyle(.roundedBorder)
+                }
+                Text("Professional, Casual, and Prompt can be polished. Code and Raw are never rewritten.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Cursay Pro") {
+                LabeledContent("Account", value: model.cloudStatus)
+                if !model.cloudUsage.isEmpty {
+                    Text(model.cloudUsage).foregroundStyle(.secondary)
+                }
+                HStack {
+                    if !model.cloudLinked {
+                        Button("Link this Mac") { model.linkCloudDevice() }
+                    }
+                    Link(model.cloudAccess == .upgradeRequired ? "Upgrade to Pro" : "Manage billing", destination: URL(string: "https://cursay.com/account")!)
+                    if model.cloudLinked {
+                        Button("Sign out and revoke", role: .destructive) { model.signOutCloud() }
+                    }
+                }
+            }
+
             Section("Mac integration") {
+                Picker("Appearance", selection: $settings.appearance) {
+                    ForEach(AppAppearance.allCases) { appearance in
+                        Text(appearance.displayName).tag(appearance)
+                    }
+                }
+                Picker(
+                    "Global shortcut",
+                    selection: Binding(
+                        get: { settings.shortcut },
+                        set: { model.setShortcut($0) }
+                    )
+                ) {
+                    ForEach(ShortcutChoice.allCases) { shortcut in
+                        Text(shortcut.displayName).tag(shortcut)
+                    }
+                }
                 LabeledContent("Global shortcut", value: model.shortcutRegistered ? model.shortcutLabel : "Unavailable")
                 LabeledContent("Microphone", value: model.microphoneStatus)
                 LabeledContent("Automatic paste", value: model.pasteController.isAccessibilityTrusted ? "Allowed" : "Needs Accessibility access")
@@ -367,6 +510,8 @@ private struct SettingsView: View {
                         set: { model.setLaunchAtLogin($0) }
                     )
                 )
+                Button("Check for updates…") { model.checkForUpdates() }
+                    .disabled(!model.updates.canCheckForUpdates)
             }
 
             Section("Privacy") {
@@ -376,7 +521,15 @@ private struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(20)
-        .navigationTitle("Settings")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("Settings")
+        .alert("Cursay Cloud requires Pro", isPresented: $model.showCloudUpgradePrompt) {
+            Button("Upgrade to Pro") { model.openCloudUpgrade() }
+            Button("Use Local Whisper") { model.selectProvider(.local) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Start a Pro trial or upgrade to use managed cloud transcription and Cloud Smart Polish. Local Whisper stays free and unlimited.")
+        }
     }
 }
 

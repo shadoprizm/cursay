@@ -3,6 +3,7 @@ import Foundation
 public enum DictationMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case professional
     case casual
+    case prompt
     case code
     case raw
 
@@ -10,6 +11,22 @@ public enum DictationMode: String, CaseIterable, Codable, Identifiable, Sendable
 
     public var displayName: String {
         rawValue.capitalized
+    }
+}
+
+public enum TranscriptionProvider: String, CaseIterable, Codable, Identifiable, Sendable {
+    case local
+    case cloud
+    case custom
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .local: return "Local Whisper"
+        case .cloud: return "Cursay Cloud"
+        case .custom: return "Custom"
+        }
     }
 }
 
@@ -22,24 +39,50 @@ public struct TranscriptMetadata: Equatable, Sendable {
 }
 
 public struct TranscriptionResult: Codable, Sendable {
+    public struct Usage: Codable, Sendable {
+        public let costUsd: Double?
+        public let costInUsdTicks: Double?
+
+        public init(costUsd: Double? = nil, costInUsdTicks: Double? = nil) {
+            self.costUsd = costUsd
+            self.costInUsdTicks = costInUsdTicks
+        }
+    }
+
     public let text: String
     public let language: String?
     public let duration: Double?
     public let provider: String?
     public let model: String?
+    public let polishGrant: String?
+    public let costUsd: Double?
+    public let usage: Usage?
 
     public init(
         text: String,
         language: String? = nil,
         duration: Double? = nil,
         provider: String? = nil,
-        model: String? = nil
+        model: String? = nil,
+        polishGrant: String? = nil,
+        costUsd: Double? = nil,
+        usage: Usage? = nil
     ) {
         self.text = text
         self.language = language
         self.duration = duration
         self.provider = provider
         self.model = model
+        self.polishGrant = polishGrant
+        self.costUsd = costUsd
+        self.usage = usage
+    }
+
+    public var reportedCostUsd: Double? {
+        if let costUsd, costUsd >= 0 { return costUsd }
+        if let costUsd = usage?.costUsd, costUsd >= 0 { return costUsd }
+        if let ticks = usage?.costInUsdTicks, ticks >= 0 { return ticks / 10_000_000_000 }
+        return nil
     }
 }
 
@@ -55,6 +98,7 @@ public struct Dictation: Identifiable, Codable, Equatable, Sendable {
     public let model: String
     public let fillersRemoved: [String]
     public let recordingPath: String?
+    public let costUsd: Double?
 
     public init(
         id: UUID = UUID(),
@@ -67,7 +111,8 @@ public struct Dictation: Identifiable, Codable, Equatable, Sendable {
         provider: String,
         model: String,
         fillersRemoved: [String] = [],
-        recordingPath: String? = nil
+        recordingPath: String? = nil,
+        costUsd: Double? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -80,6 +125,7 @@ public struct Dictation: Identifiable, Codable, Equatable, Sendable {
         self.model = model
         self.fillersRemoved = fillersRemoved
         self.recordingPath = recordingPath
+        self.costUsd = costUsd
     }
 
     public var wordCount: Int {
@@ -103,11 +149,13 @@ public struct HistoryStats: Equatable, Sendable {
     public let words: Int
     public let seconds: Double
     public let fillers: [FillerStat]
+    public let cost: CostSummary
 
-    public init(dictations: Int, words: Int, seconds: Double, fillers: [FillerStat]) {
+    public init(dictations: Int, words: Int, seconds: Double, fillers: [FillerStat], cost: CostSummary) {
         self.dictations = dictations
         self.words = words
         self.seconds = seconds
         self.fillers = fillers
+        self.cost = cost
     }
 }

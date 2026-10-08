@@ -12,6 +12,7 @@ from typing import Any
 APP_ID = "io.github.shadoprizm.Cursay"
 APP_NAME = "Cursay"
 APPEARANCE_OPTIONS = ("system", "light", "dark")
+STT_PROVIDER_OPTIONS = ("local", "cloud", "custom")
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "cursay"
 DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "cursay"
@@ -29,6 +30,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "language": "en",
     "stt_endpoint": "http://127.0.0.1:8765/v1/audio/transcriptions",
     "stt_model": "whisper-base.en",
+    "stt_provider": "local",
+    "cloud_base_url": "https://cursay.com",
+    "cloud_local_fallback": True,
+    "local_stt_endpoint": "http://127.0.0.1:8765/v1/audio/transcriptions",
+    "local_stt_model": "whisper-base.en",
     "shortcut": "<Control>space",
     "auto_paste": True,
     "remove_fillers": True,
@@ -87,10 +93,18 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             config.update({key: value for key, value in data.items() if key in DEFAULT_CONFIG})
+            if "stt_provider" not in data:
+                endpoint = str(data.get("stt_endpoint", DEFAULT_CONFIG["stt_endpoint"]))
+                model = str(data.get("stt_model", DEFAULT_CONFIG["stt_model"]))
+                config["stt_provider"] = (
+                    "local" if endpoint.startswith("http://127.0.0.1:") and model == "whisper-base.en" else "custom"
+                )
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
     if config["appearance"] not in APPEARANCE_OPTIONS:
         config["appearance"] = "system"
+    if config["stt_provider"] not in STT_PROVIDER_OPTIONS:
+        config["stt_provider"] = "local"
     return config
 
 

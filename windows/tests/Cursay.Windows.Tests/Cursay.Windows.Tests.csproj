@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <Compile Include="..\..\src\Cursay.Windows\AppPaths.cs" Link="Source\AppPaths.cs" />
+    <Compile Include="..\..\src\Cursay.Windows\HistoryStore.cs" Link="Source\HistoryStore.cs" />
+    <Compile Include="..\..\src\Cursay.Windows\Models.cs" Link="Source\Models.cs" />
+    <Compile Include="..\..\src\Cursay.Windows\Persistence.cs" Link="Source\Persistence.cs" />
+    <Compile Include="..\..\src\Cursay.Windows\TranscriptCleaner.cs" Link="Source\TranscriptCleaner.cs" />
+  </ItemGroup>
+</Project>

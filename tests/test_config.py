@@ -41,6 +41,27 @@ class ConfigTests(unittest.TestCase):
             path.write_text('{"appearance": "sepia"}', encoding="utf-8")
             self.assertEqual(load_config(path)["appearance"], "system")
 
+    def test_existing_custom_endpoint_is_preserved_as_custom_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(
+                '{"stt_endpoint":"https://speech.example/v1/audio/transcriptions","stt_model":"private-model"}',
+                encoding="utf-8",
+            )
+            loaded = load_config(path)
+            self.assertEqual(loaded["stt_provider"], "custom")
+            self.assertEqual(loaded["stt_endpoint"], "https://speech.example/v1/audio/transcriptions")
+            self.assertEqual(loaded["stt_model"], "private-model")
+
+    def test_existing_default_endpoint_migrates_to_local_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(
+                '{"stt_endpoint":"http://127.0.0.1:8765/v1/audio/transcriptions","stt_model":"whisper-base.en"}',
+                encoding="utf-8",
+            )
+            self.assertEqual(load_config(path)["stt_provider"], "local")
+
     def test_migrates_legacy_profile_without_removing_original(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -26,4 +26,14 @@ final class TranscriptCleanerTests: XCTestCase {
         )
         XCTAssertEqual(text, "print(hello)\n")
     }
+
+    func testPromptModePreservesMeaningWithoutTerminalPunctuation() {
+        let (text, metadata) = TranscriptCleaner.clean(
+            "um build a migration plan with rollback steps",
+            mode: .prompt,
+            removeFillers: true
+        )
+        XCTAssertEqual(text, "Build a migration plan with rollback steps")
+        XCTAssertEqual(metadata.fillersRemoved.map { $0.lowercased() }, ["um"])
+    }
 }

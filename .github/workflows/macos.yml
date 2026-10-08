@@ -2,13 +2,14 @@ name: macOS Build
 
 on:
   push:
-    paths:
-      - "macos/**"
-      - "assets/cursay.svg"
-      - ".github/workflows/macos.yml"
+    branches:
+      - "**"
+    tags:
+      - "v*"
   pull_request:
     paths:
       - "macos/**"
+      - "backend/**"
       - "assets/cursay.svg"
       - ".github/workflows/macos.yml"
 
@@ -17,8 +18,96 @@ permissions:
 
 jobs:
   build:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - name: Test and build app bundle
         run: ./macos/scripts/build-app.sh
+
+  release:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Validate release secrets
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$CERTIFICATE_P12_BASE64"
+          test -n "$CERTIFICATE_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+          test -n "$CODESIGN_IDENTITY"
+          test -n "$SPARKLE_PRIVATE_KEY"
+          test -n "$SPARKLE_PUBLIC_KEY"
+          test -n "$APPLE_ID"
+          test -n "$APPLE_APP_SPECIFIC_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/cursay-signing.keychain-db"
+          printf '%s' "$CERTIFICATE_P12_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      - name: Build, notarize, and staple macOS release
+        env:
+          CURSAY_VERSION: ${{ github.ref_name }}
+          CURSAY_BUILD_NUMBER: ${{ github.run_number }}
+          CURSAY_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          CURSAY_SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          export CURSAY_VERSION="${CURSAY_VERSION#v}"
+          ./macos/scripts/release-dmg.sh
+      - name: Generate signed Sparkle update feed
+        env:
+          CURSAY_VERSION: ${{ github.ref_name }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          export CURSAY_VERSION="${CURSAY_VERSION#v}"
+          SPARKLE_PRIVATE_KEY_FILE="$RUNNER_TEMP/sparkle-private-key"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$SPARKLE_PRIVATE_KEY_FILE"
+          chmod 600 "$SPARKLE_PRIVATE_KEY_FILE"
+          export SPARKLE_PRIVATE_KEY_FILE
+          ./macos/scripts/generate-appcast.sh
+      - name: Publish signed artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURSAY_VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${CURSAY_VERSION#v}"
+          gh release view "$CURSAY_VERSION" >/dev/null 2>&1 || gh release create "$CURSAY_VERSION" --title "Cursay $VERSION" --generate-notes
+          gh release upload "$CURSAY_VERSION" \
+            "macos/dist/Cursay-$VERSION-macos.dmg" \
+            "macos/dist/Cursay-$VERSION-macos.dmg.sha256" \
+            "macos/dist/Cursay-$VERSION-macos.zip" \
+            "macos/dist/Cursay-$VERSION-macos.zip.sha256" \
+            "macos/dist/appcast.xml" \
+            --clobber

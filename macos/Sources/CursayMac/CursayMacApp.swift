@@ -7,7 +7,7 @@ struct CursayMacApp: App {
 
     var body: some Scene {
         WindowGroup("Cursay", id: "main") {
-            ContentView()
+            ContentView(settings: model.settings)
                 .environmentObject(model)
                 .frame(minWidth: 820, minHeight: 560)
         }

@@ -26,6 +26,9 @@ struct MenuBarView: View {
 
             Divider()
 
+            Button("Check for Updates…") { model.checkForUpdates() }
+                .disabled(!model.updates.canCheckForUpdates)
+
             Button("Open Cursay") {
                 openWindow(id: "main")
                 NSApp.activate(ignoringOtherApps: true)
