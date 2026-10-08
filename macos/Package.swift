@@ -27,5 +27,9 @@ let package = Package(
             name: "CursayCoreTests",
             dependencies: ["CursayCore"]
         ),
+        .testTarget(
+            name: "CursayMacTests",
+            dependencies: ["CursayMac"]
+        ),
     ]
 )

@@ -95,7 +95,8 @@ private struct DashboardView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("Dictate")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("Dictate")
     }
 
     private var hero: some View {
@@ -273,7 +274,8 @@ private struct HistoryView: View {
             }
         }
         .searchable(text: $model.searchQuery, prompt: "Search your dictations")
-        .navigationTitle("History")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("History")
         .toolbar {
             if !model.history.isEmpty {
                 Button("Clear History", role: .destructive) {
@@ -352,7 +354,8 @@ private struct InsightsView: View {
             .frame(maxWidth: 920)
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .navigationTitle("Insights")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("Insights")
     }
 
     private func metric(_ title: String, value: String, icon: String) -> some View {
@@ -496,7 +499,8 @@ private struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(20)
-        .navigationTitle("Settings")
+        .navigationTitle("Cursay")
+        .navigationSubtitle("Settings")
         .onChange(of: settings.provider) { _ in
             Task { await model.checkBackend() }
         }

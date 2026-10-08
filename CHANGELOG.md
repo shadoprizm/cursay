@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Mac shortcut repair
+
+- Handle Option + Space directly with existing Accessibility access, including either key-release order and recovery after sleep or an event-handler timeout.
+- Keep Cursay in the window title on every page.
+- Correct spoken-code bracket cleanup on current macOS regular-expression engines.
+
 All notable user-facing changes to Cursay are documented here.
 
 ## Unreleased

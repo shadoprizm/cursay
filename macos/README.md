@@ -29,6 +29,8 @@ The script runs the Swift tests, builds the native app and a self-contained fast
 
 On first launch, macOS will ask for microphone access. Automatic paste also needs Cursay enabled in **System Settings → Privacy & Security → Accessibility**. Cursay copies the result even when Accessibility access is unavailable.
 
+Option + Space uses a keyboard event handler with the same existing Accessibility access, rather than relying on Carbon hotkey delivery. It consumes only that exact shortcut, stops when either key is released, and restores the handler after sleep or an event timeout. Other shortcut choices use Carbon and do not require Accessibility for recording.
+
 ## Transcription service
 
 The default endpoint is:
