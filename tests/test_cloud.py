@@ -4,7 +4,7 @@ import io
 import json
 import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from cursay.cloud import CloudClient, CloudError, CloudTokens, SecretServiceStore, SecureStorageUnavailable
 

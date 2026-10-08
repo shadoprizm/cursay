@@ -4,6 +4,12 @@ All notable user-facing changes to Cursay are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Handle Option + Space directly with existing Accessibility access, including either key-release order and recovery after sleep or an event-handler timeout.
+- Keep Cursay in the window title on every page.
+- Correct spoken-code bracket cleanup on current macOS regular-expression engines.
+
 ### Added
 
 - Added optional Cursay Pro accounts with managed cloud transcription, Smart Polish, monthly usage reporting, browser-based device linking, secure token rotation, device revocation, and local fallback on Ubuntu and macOS.

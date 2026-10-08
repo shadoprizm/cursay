@@ -71,8 +71,8 @@ public enum TranscriptCleaner {
         result = replacing(#"[ ]*\n[ ]*"#, in: result, with: "\n")
         result = replacing(#"[ ]*\t[ ]*"#, in: result, with: "\t")
         result = replacing(#"\s+([,.;:)\]}])"#, in: result, with: "$1")
-        result = replacing(#"[ \t]+([([{])"#, in: result, with: "$1")
-        result = replacing(#"([([{])\s+"#, in: result, with: "$1")
+        result = replacing(#"[ \t]+([\(\[\{])"#, in: result, with: "$1")
+        result = replacing(#"([\(\[\{])\s+"#, in: result, with: "$1")
         return result.trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
     }
 
