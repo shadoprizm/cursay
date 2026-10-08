@@ -4,9 +4,10 @@ import io
 import json
 import time
 import unittest
-from unittest.mock import Mock, patch
+from pathlib import Path
+from unittest.mock import patch
 
-from cursay.cloud import CloudClient, CloudError, CloudTokens, SecretServiceStore, SecureStorageUnavailable
+from cursay.cloud import CloudClient, CloudError, CloudTokens, SecretServiceStore, SecureStorageUnavailable, cloud_access_error
 
 
 class MemoryStore:
@@ -24,6 +25,36 @@ class MemoryStore:
 
 
 class CloudTests(unittest.TestCase):
+    def test_free_expired_or_inconsistent_accounts_cannot_upload_audio(self) -> None:
+        client = CloudClient("https://example.test", store=MemoryStore())  # type: ignore[arg-type]
+        accounts = [
+            {"plan": "free", "entitlement": False, "allowance_seconds": 0, "remaining_seconds": 0},
+            {"plan": "pro", "entitlement": False, "allowance_seconds": 90000, "remaining_seconds": 90000},
+            {"plan": "trial", "entitlement": False, "allowance_seconds": 7200, "remaining_seconds": 7200},
+            {"plan": "free", "entitlement": True, "allowance_seconds": 90000, "remaining_seconds": 90000},
+            {},
+        ]
+        for account in accounts:
+            with self.subTest(account=account), patch.object(client, "account", return_value=account), patch("cursay.cloud.transcribe") as upload:
+                with self.assertRaises(CloudError) as caught:
+                    client.transcribe(Path("unused.wav"), "en")
+                self.assertEqual(caught.exception.status, 402)
+                upload.assert_not_called()
+
+    def test_exhausted_paid_allowance_is_not_an_upgrade_requirement(self) -> None:
+        error = cloud_access_error({"plan": "pro", "entitlement": True, "allowance_seconds": 90000, "remaining_seconds": 0})
+        self.assertIsNotNone(error)
+        self.assertEqual(error.code, "quota_exhausted")
+
+    def test_active_trial_and_pro_accounts_can_transcribe(self) -> None:
+        tokens = CloudTokens("a", time.time() + 1000, "r", time.time() + 2000, "device")
+        client = CloudClient("https://example.test", store=MemoryStore(tokens))  # type: ignore[arg-type]
+        for plan in ("trial", "pro"):
+            account = {"plan": plan, "entitlement": True, "allowance_seconds": 7200, "remaining_seconds": 60}
+            with self.subTest(plan=plan), patch.object(client, "account", return_value=account), patch("cursay.cloud.transcribe", return_value={"text": "hello"}) as upload:
+                self.assertEqual(client.transcribe(Path("fixture.wav"), "en"), {"text": "hello"})
+                self.assertEqual(upload.call_args.kwargs["bearer_token"], "a")
+
     def test_never_falls_back_to_plaintext_when_secret_tool_is_missing(self) -> None:
         with self.assertRaises(SecureStorageUnavailable):
             SecretServiceStore(executable="/definitely/missing/secret-tool").save(CloudTokens("a", 1, "r", 2, "d"))

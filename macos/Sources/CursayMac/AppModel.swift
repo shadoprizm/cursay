@@ -41,16 +41,19 @@ enum BackendState: Equatable {
     case checking
     case available
     case unavailable(String)
+    case upgradeRequired
 
     var label: String {
         switch self {
         case .checking: return "Checking…"
         case .available: return "Connected"
         case .unavailable: return "Unavailable"
+        case .upgradeRequired: return "Upgrade to Pro"
         }
     }
 
     var detail: String? {
+        if self == .upgradeRequired { return CloudAccess.upgradeRequired.message }
         if case let .unavailable(message) = self { return message }
         return nil
     }
@@ -70,6 +73,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var cloudStatus = "Not linked"
     @Published private(set) var cloudUsage = ""
     @Published private(set) var cloudLinked = false
+    @Published private(set) var cloudAccess: CloudAccess?
+    @Published var showCloudUpgradePrompt = false
     @Published private(set) var lastFallbackReason: String?
     @Published var searchQuery = ""
 
@@ -86,6 +91,7 @@ final class AppModel: ObservableObject {
     private var historyStore: HistoryStore?
     private var recordingTarget: PasteTarget?
     private var shortcutHeld = false
+    private var backendCheckGeneration = 0
 
     init() {
         do {
@@ -205,10 +211,19 @@ final class AppModel: ObservableObject {
     }
 
     func checkBackend() async {
+        backendCheckGeneration += 1
+        let generation = backendCheckGeneration
+        let provider = settings.provider
         backendState = .checking
-        if settings.provider == .cloud {
+        if provider == .cloud {
             await refreshCloudAccount()
-            backendState = cloudLinked ? .available : .unavailable(cloudStatus)
+            guard generation == backendCheckGeneration, settings.provider == provider else { return }
+            switch cloudAccess {
+            case .available: backendState = .available
+            case .upgradeRequired: backendState = .upgradeRequired
+            case .allowanceExhausted: backendState = .unavailable(CloudAccess.allowanceExhausted.message)
+            case nil: backendState = .unavailable(cloudStatus)
+            }
         } else {
             do {
                 if settings.provider == .local {
@@ -216,13 +231,34 @@ final class AppModel: ObservableObject {
                 } else if await transcriptionClient.health(endpoint: settings.endpoint) == false {
                     throw LocalBackendError.serviceUnavailable
                 }
+                guard generation == backendCheckGeneration, settings.provider == provider else { return }
                 backendState = .available
                 logger.notice("Transcription backend available")
             } catch {
+                guard generation == backendCheckGeneration, settings.provider == provider else { return }
                 backendState = .unavailable(error.localizedDescription)
                 logger.error("Transcription backend unavailable: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func selectProvider(_ provider: TranscriptionProvider) {
+        settings.provider = provider
+        Task {
+            await checkBackend()
+            if settings.provider == .cloud, backendState == .upgradeRequired {
+                showCloudUpgradePrompt = true
+            }
+        }
+    }
+
+    var cloudAccessNotice: String? {
+        guard settings.provider == .cloud, let access = cloudAccess, access != .available else { return nil }
+        return access.message + (settings.cloudLocalFallback ? " Dictation will use free Local Whisper." : " Cloud dictation is unavailable.")
+    }
+
+    func openCloudUpgrade() {
+        NSWorkspace.shared.open(URL(string: "https://cursay.com/account")!)
     }
 
     func linkCloudDevice() {
@@ -237,6 +273,7 @@ final class AppModel: ObservableObject {
                     try await Task.sleep(for: .seconds(max(2, authorization.interval)))
                     if try await cloudClient.pollLink(deviceCode: authorization.deviceCode) {
                         await refreshCloudAccount()
+                        if settings.provider == .cloud { await checkBackend() }
                         return
                     }
                 }
@@ -252,10 +289,17 @@ final class AppModel: ObservableObject {
         do {
             let account = try await cloudClient.account()
             cloudLinked = true
+            cloudAccess = account.access
             cloudStatus = "Linked · \(account.plan.capitalized) · \(account.deviceCount) of \(account.deviceLimit) devices"
-            cloudUsage = "\(account.remainingSeconds / 60) of \(account.allowanceSeconds / 60) cloud minutes remaining · Included in Pro"
+            cloudUsage = account.access == .upgradeRequired
+                ? "Cloud transcription requires Cursay Pro. Local Whisper is free and unlimited."
+                : "\(account.remainingSeconds / 60) of \(account.allowanceSeconds / 60) cloud minutes remaining"
         } catch {
             cloudLinked = false
+            cloudAccess = nil
+            if let cloudError = error as? CloudClientError, case .notLinked = cloudError {
+                cloudAccess = .upgradeRequired
+            }
             cloudStatus = error.localizedDescription
             cloudUsage = ""
         }
@@ -266,6 +310,7 @@ final class AppModel: ObservableObject {
             do {
                 try await cloudClient.revokeAndSignOut()
                 cloudLinked = false
+                cloudAccess = nil
                 cloudStatus = "This Mac is signed out and revoked."
                 cloudUsage = ""
                 if settings.provider == .cloud { backendState = .unavailable("Link this Mac to use Cursay Cloud.") }

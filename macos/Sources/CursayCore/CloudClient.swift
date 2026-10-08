@@ -154,6 +154,7 @@ public actor CloudClient {
     }
 
     public func transcribe(audioURL: URL, language: String) async throws -> TranscriptionResult {
+        try await account().requireTranscriptionAccess()
         var tokens = try await validTokens()
         let idempotencyKey = UUID().uuidString
         do {

@@ -27,6 +27,21 @@ class SecureStorageUnavailable(CloudError):
     pass
 
 
+def cloud_access_error(account: dict[str, Any]) -> CloudError | None:
+    if (account.get("entitlement") is not True or account.get("plan") not in {"trial", "pro"}
+            or int(account.get("allowance_seconds", 0)) <= 0):
+        return CloudError(
+            "Upgrade to Cursay Pro to use managed cloud transcription and Cloud Smart Polish.",
+            status=402, code="subscription_required",
+        )
+    if int(account.get("remaining_seconds", 0)) <= 0:
+        return CloudError(
+            "Your cloud allowance is used up. Use Local Whisper or wait for your allowance to renew.",
+            status=429, code="quota_exhausted",
+        )
+    return None
+
+
 @dataclass
 class CloudTokens:
     access_token: str
@@ -190,6 +205,9 @@ class CloudClient:
             return self._request("/api/v1/account", access_token=tokens.access_token)
 
     def transcribe(self, path: Path, language: str) -> dict[str, Any]:
+        access_error = cloud_access_error(self.account())
+        if access_error:
+            raise access_error
         tokens = self.tokens()
         endpoint = f"{self.base_url}/api/v1/audio/transcriptions"
         key = str(uuid.uuid4())

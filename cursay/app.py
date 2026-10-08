@@ -18,7 +18,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from . import __version__
 from .audio import AudioError, PipeWireRecorder
 from .cleanup import PolishError, clean_transcript, polish_transcript, should_polish
-from .cloud import CloudClient, CloudError, SecureStorageUnavailable
+from .cloud import CloudClient, CloudError, SecureStorageUnavailable, cloud_access_error
 from .config import APPEARANCE_OPTIONS, APP_ID, APP_NAME, PROJECT_DIR, load_config, save_config
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
@@ -576,8 +576,8 @@ class CursayWindow(Adw.ApplicationWindow):
         self.cloud_link_button = Gtk.Button(label="Link this device")
         self.cloud_link_button.connect("clicked", lambda *_: self.app.link_cloud_device())
         cloud_actions.append(self.cloud_link_button)
-        billing = Gtk.LinkButton(uri=f"{self.app.config['cloud_base_url']}/account", label="Manage billing")
-        cloud_actions.append(billing)
+        self.cloud_billing_button = Gtk.LinkButton(uri=f"{self.app.config['cloud_base_url']}/account", label="Upgrade to Pro")
+        cloud_actions.append(self.cloud_billing_button)
         self.cloud_sign_out_button = Gtk.Button(label="Sign out and revoke")
         self.cloud_sign_out_button.connect("clicked", lambda *_: self.app.sign_out_cloud())
         cloud_actions.append(self.cloud_sign_out_button)
@@ -652,11 +652,12 @@ class CursayWindow(Adw.ApplicationWindow):
         self.app.update_setting("stt_provider", providers[dropdown.get_selected()])
         self.app.check_backend()
 
-    def set_cloud_account(self, message: str, usage: str = "", linked: bool = False) -> None:
+    def set_cloud_account(self, message: str, usage: str = "", linked: bool = False, upgrade_required: bool = False) -> None:
         self.cloud_status.set_label(message)
         self.cloud_usage.set_label(usage)
         self.cloud_link_button.set_visible(not linked)
         self.cloud_sign_out_button.set_visible(linked)
+        self.cloud_billing_button.set_label("Upgrade to Pro" if upgrade_required or not linked else "Manage billing")
 
     def _dashboard_polish_changed(self, switch: Gtk.Switch, _param: Any) -> None:
         self._set_smart_polish(switch.get_active())
@@ -1236,13 +1237,25 @@ class CursayApplication(Adw.Application):
         remaining = int(account.get("remaining_seconds", 0)) // 60
         allowance = int(account.get("allowance_seconds", 0)) // 60
         plan = str(account.get("plan", "free")).title()
+        access_error = cloud_access_error(account)
+        upgrade_required = access_error is not None and access_error.code == "subscription_required"
         if self.window:
             self.window.set_cloud_account(
                 f"Linked • {plan} • {account.get('device_count', 0)} of {account.get('device_limit', 3)} devices",
-                f"{remaining:,} of {allowance:,} cloud minutes remaining • Included in Pro",
+                str(access_error) if access_error else f"{remaining:,} of {allowance:,} cloud minutes remaining",
                 linked=True,
+                upgrade_required=upgrade_required,
             )
-            self.window.backend_health.set_label(f"Cursay Cloud ready • {remaining:,} minutes remaining • Included in Pro")
+            if str(self.config.get("stt_provider")) == "cloud":
+                if access_error:
+                    message = str(access_error)
+                    if bool(self.config.get("cloud_local_fallback", True)):
+                        message += " Dictation will use free Local Whisper."
+                    self.window.backend_health.set_label(message)
+                    if upgrade_required:
+                        self.window.toast("Cursay Cloud requires Pro. Choose Upgrade to Pro or use free Local Whisper.")
+                else:
+                    self.window.backend_health.set_label(f"Cursay Cloud ready • {remaining:,} minutes remaining")
         return False
 
     def _cloud_account_error(self, message: str) -> bool:

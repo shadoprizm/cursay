@@ -142,9 +142,21 @@ private struct DashboardView: View {
 
             Toggle("Smart Polish", isOn: $settings.smartPolish)
                 .toggleStyle(.switch)
-            Text(settings.provider == .cloud ? "Cloud Smart Polish is included in Pro." : "Uses your configured compatible text endpoint.")
+            Text(settings.provider == .cloud ? (model.cloudAccess == .available ? "Cloud Smart Polish is included in Pro." : "Cloud Smart Polish requires an active Pro plan or trial.") : "Uses your configured compatible text endpoint.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if let notice = model.cloudAccessNotice {
+                Label(notice, systemImage: "lock.fill")
+                    .font(.callout)
+                HStack {
+                    if model.cloudAccess == .upgradeRequired {
+                        Button("Upgrade to Pro") { model.openCloudUpgrade() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    Button("Use Local Whisper") { model.selectProvider(.local) }
+                }
+            }
 
             Label(model.phase.statusText, systemImage: statusIcon)
                 .font(.callout.weight(.semibold))
@@ -392,7 +404,10 @@ private struct SettingsView: View {
             }
 
             Section("Transcription service") {
-                Picker("Provider", selection: $settings.provider) {
+                Picker("Provider", selection: Binding(
+                    get: { settings.provider },
+                    set: { model.selectProvider($0) }
+                )) {
                     ForEach(TranscriptionProvider.allCases) { provider in
                         Text(provider.displayName).tag(provider)
                     }
@@ -404,8 +419,15 @@ private struct SettingsView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 if settings.provider == .cloud {
+                    if let notice = model.cloudAccessNotice {
+                        Text(notice).foregroundStyle(.secondary)
+                    }
+                    if model.cloudAccess == .upgradeRequired {
+                        Button("Upgrade to Pro") { model.openCloudUpgrade() }
+                            .buttonStyle(.borderedProminent)
+                    }
                     Toggle("Fall back to Local Whisper", isOn: $settings.cloudLocalFallback)
-                    Text("Cloud usage is included in Pro. Upstream provider cost is never added as an overage.")
+                    Text("Managed cloud requires an active Pro plan or trial. No overage charges.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -449,7 +471,7 @@ private struct SettingsView: View {
                     if !model.cloudLinked {
                         Button("Link this Mac") { model.linkCloudDevice() }
                     }
-                    Link("Manage billing", destination: URL(string: "https://cursay.com/account")!)
+                    Link(model.cloudAccess == .upgradeRequired ? "Upgrade to Pro" : "Manage billing", destination: URL(string: "https://cursay.com/account")!)
                     if model.cloudLinked {
                         Button("Sign out and revoke", role: .destructive) { model.signOutCloud() }
                     }
@@ -501,8 +523,12 @@ private struct SettingsView: View {
         .padding(20)
         .navigationTitle("Cursay")
         .navigationSubtitle("Settings")
-        .onChange(of: settings.provider) { _ in
-            Task { await model.checkBackend() }
+        .alert("Cursay Cloud requires Pro", isPresented: $model.showCloudUpgradePrompt) {
+            Button("Upgrade to Pro") { model.openCloudUpgrade() }
+            Button("Use Local Whisper") { model.selectProvider(.local) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Start a Pro trial or upgrade to use managed cloud transcription and Cloud Smart Polish. Local Whisper stays free and unlimited.")
         }
     }
 }
