@@ -53,7 +53,7 @@ def _get_model() -> WhisperModel:
         return _model
 
 
-def _transcribe(data: bytes, filename: str, language: str | None, temperature: float) -> dict[str, Any]:
+def _transcribe(data: bytes, filename: str, language: str | None, temperature: float, prompt: str | None = None) -> dict[str, Any]:
     suffix = Path(filename).suffix or ".wav"
     with tempfile.NamedTemporaryFile(suffix=suffix) as handle:
         handle.write(data)
@@ -66,6 +66,8 @@ def _transcribe(data: bytes, filename: str, language: str | None, temperature: f
             beam_size=BEAM_SIZE,
             condition_on_previous_text=False,
             word_timestamps=True,
+            initial_prompt=prompt[:2000] if prompt else None,
+            hotwords=prompt[:2000] if prompt else None,
         )
         segment_list = list(segments)
 
@@ -115,6 +117,7 @@ async def transcribe(
     language: str | None = Form(None),
     response_format: str = Form("json"),
     temperature: float = Form(0.0),
+    prompt: str | None = Form(None),
 ) -> Any:
     del model
     data = await file.read()
@@ -124,7 +127,7 @@ async def transcribe(
         raise HTTPException(413, "audio upload too large")
 
     started = time.monotonic()
-    result = _transcribe(data, file.filename or "audio.wav", language, temperature)
+    result = _transcribe(data, file.filename or "audio.wav", language, temperature, prompt)
     result["elapsed"] = round(time.monotonic() - started, 2)
     if response_format == "text":
         return PlainTextResponse(result["text"])

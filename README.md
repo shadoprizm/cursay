@@ -237,3 +237,11 @@ Uninstalling preserves settings and dictation history. The script prints the dat
 ## License
 
 Cursay is available under the [MIT License](LICENSE).
+
+## Cursay Memory (release candidate)
+
+Future dictations can sync to account Memory after separate consent at `https://cursay.com/app` and enabling sync on each device. Past local history is not imported. The browser workspace provides saved thoughts, search, Ask Cursay, reviews, projects, explicit vocabulary corrections and reviewable suggestions. Intelligence uses OpenAI GPT-6 Luna through Vercel AI Gateway; speech and Smart Polish keep their existing providers.
+
+Private capture keeps a thought out of local history, retained audio, and Memory. App exclusions fail closed when application identity is unavailable. Only approved vocabulary can inform Local Whisper hints or opted-in Cloud Smart Polish, and Raw/Code modes remain unchanged. Account-bound offline queues apply server deletions before uploads; forgetting Memory invalidates old queued data. Windows uses DPAPI for cloud credentials and its Memory outbox.
+
+This candidate is implemented and tested locally; the managed Memory service is not yet live. Cloud staging migration, backup/deletion-restore verification, authenticated browser/native acceptance, and signed release checks must pass before launch. Keep using the existing released dictation while those gates are completed.

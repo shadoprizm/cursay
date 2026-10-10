@@ -44,6 +44,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "preserve_recordings": False,
     "launch_at_login": False,
     "show_notifications": True,
+    "memory_sync": False,
+    "private_capture": False,
+    "excluded_memory_apps": "",
 }
 
 
