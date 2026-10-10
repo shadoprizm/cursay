@@ -515,7 +515,18 @@ private struct SettingsView: View {
             }
 
             Section("Privacy") {
-                Text("Text history is stored only on this Mac. Audio is deleted after transcription unless Keep audio recordings is enabled.")
+                Toggle("Private capture (no history or Memory)", isOn: $settings.privateCapture)
+                Toggle("Sync future dictations to account Memory", isOn: $settings.memorySync)
+                    .onChange(of: settings.memorySync) { enabled in if enabled { Task { await model.syncMemory() } } }
+                TextField("Excluded app bundle IDs (comma separated)", text: $settings.excludedMemoryApps)
+                LabeledContent("Memory", value: model.memoryStatus)
+                HStack {
+                    Link("Open Memory workspace", destination: URL(string: "https://cursay.com/app")!)
+                    Button("Sync now") { Task { await model.syncMemory() } }
+                }
+                Text("Memory requires separate consent in the workspace and a linked account. Only future captures sync; existing history is not imported. Excluded apps and private capture retain no history or audio. If app identity is unavailable while exclusions are configured, capture stays private.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Local history stays on this Mac unless you enable account Memory. Audio is deleted after transcription unless Keep audio recordings is enabled for a non-private capture.")
                     .foregroundStyle(.secondary)
             }
         }

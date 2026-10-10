@@ -18,6 +18,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from . import __version__
 from .audio import AudioError, PipeWireRecorder
 from .cleanup import PolishError, clean_transcript, polish_transcript, should_polish
+from .memory import MemorySync, is_private_capture
 from .cloud import CloudClient, CloudError, SecureStorageUnavailable, cloud_access_error
 from .config import APPEARANCE_OPTIONS, APP_ID, APP_NAME, PROJECT_DIR, load_config, save_config
 from .keyboard import VirtualKeyboard
@@ -583,6 +584,24 @@ class CursayWindow(Adw.ApplicationWindow):
         cloud_actions.append(self.cloud_sign_out_button)
         cloud.append(cloud_actions)
         content.append(cloud)
+        memory = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        memory.add_css_class("card")
+        memory.append(self._section_title("Cursay Memory", "Separate account consent is required in the workspace. Only future captures sync; historical dictations stay local."))
+        for label, key in [("Sync future dictations", "memory_sync"), ("Private capture (no history or Memory)", "private_capture")]:
+            switch = Gtk.CheckButton(label=label, active=bool(self.app.config[key]))
+            switch.connect("toggled", lambda item, name=key: self.app.update_setting(name, item.get_active()))
+            memory.append(switch)
+        exclusions = Gtk.Entry(text=str(self.app.config["excluded_memory_apps"]), placeholder_text="Excluded app identities, comma separated")
+        exclusions.connect("notify::text", lambda entry, _: self.app.update_setting("excluded_memory_apps", entry.get_text()))
+        memory.append(exclusions)
+        memory.append(Gtk.Label(label="App exclusions fail closed when active-app identity is unavailable (including GNOME Wayland). Private capture never keeps audio.", wrap=True, xalign=0))
+        self.memory_status = Gtk.Label(label="Memory sync off on this device", wrap=True, xalign=0)
+        memory.append(self.memory_status)
+        memory.append(Gtk.LinkButton(uri=f"{self.app.config['cloud_base_url']}/app", label="Open Memory workspace"))
+        sync = Gtk.Button(label="Sync now")
+        sync.connect("clicked", lambda *_: self.app.sync_memory())
+        memory.append(sync)
+        content.append(memory)
 
         updates = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         updates.add_css_class("card")
@@ -797,7 +816,11 @@ class CursayWindow(Adw.ApplicationWindow):
             self.history_list.append(row)
 
     def _delete_history(self, row_id: int) -> None:
+        row = self.app.store.get(row_id)
+        if row:
+            self.app.memory.delete(row)
         self.app.store.delete(row_id)
+        self.app.sync_memory()
         self.refresh_history()
         self.toast("Dictation removed")
 
@@ -875,6 +898,8 @@ class CursayApplication(Adw.Application):
         self.checking_for_update = False
         self.pending_update_status = None if test_mode else consume_update_status()
         self.cloud = CloudClient(str(self.config.get("cloud_base_url", "https://cursay.com")))
+        self.memory = MemorySync(self.store, self.cloud)
+        self.recording_private = False
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -904,6 +929,9 @@ class CursayApplication(Adw.Application):
                 self.shortcuts.start(str(self.config["shortcut"]))
                 self.check_backend()
                 self.check_cloud_account()
+                if self.config["memory_sync"]:
+                    self.sync_memory()
+                GLib.timeout_add_seconds(60, self._memory_tick)
             if self.pending_update_status is not None:
                 success, message = self.pending_update_status
                 self.window.set_update_state(
@@ -951,6 +979,9 @@ class CursayApplication(Adw.Application):
         if self.busy:
             return
         try:
+            self.recording_memory_scope = self.memory.capture_scope()
+            self.recording_memory = bool(self.config["memory_sync"])
+            self.recording_private = is_private_capture(bool(self.config["private_capture"]), str(self.config["excluded_memory_apps"]))
             path = self.recorder.start()
         except AudioError as exc:
             self._show_error(str(exc))
@@ -966,7 +997,7 @@ class CursayApplication(Adw.Application):
             return
         LOG.info("Stopping recording source=%s", source)
         try:
-            path, duration = self.recorder.stop(bool(self.config["preserve_recordings"]))
+            path, duration = self.recorder.stop(bool(self.config["preserve_recordings"]) and not self.recording_private)
         except AudioError as exc:
             self._show_error(str(exc))
             return
@@ -978,8 +1009,12 @@ class CursayApplication(Adw.Application):
         threading.Thread(target=self._process_recording, args=(path, duration), daemon=True).start()
 
     def _process_recording(self, path: Path, duration: float) -> None:
+        private_capture = self.recording_private
+        sync_this_capture = self.recording_memory and bool(self.config["memory_sync"])
+        memory_scope = self.recording_memory_scope
         try:
             configured_provider = str(self.config.get("stt_provider", "local"))
+            vocabulary = ", ".join(self.memory.approved_vocabulary())[:2000] if sync_this_capture and not private_capture and self.config["mode"] not in {"raw", "code"} else None
             LOG.info("Transcribing %.2fs of audio with provider=%s", duration, configured_provider)
             transcription_warning: str | None = None
             if configured_provider == "cloud":
@@ -993,6 +1028,7 @@ class CursayApplication(Adw.Application):
                         str(self.config["local_stt_endpoint"]),
                         str(self.config["local_stt_model"]),
                         str(self.config["language"]),
+                        vocabulary=vocabulary,
                     )
                     transcription_warning = f"Cursay Cloud was unavailable ({cloud_exc}). Local Whisper was used."
             elif configured_provider == "local":
@@ -1001,6 +1037,7 @@ class CursayApplication(Adw.Application):
                     str(self.config["local_stt_endpoint"]),
                     str(self.config["local_stt_model"]),
                     str(self.config["language"]),
+                    vocabulary=vocabulary,
                 )
             else:
                 result = transcribe(
@@ -1022,7 +1059,7 @@ class CursayApplication(Adw.Application):
             if should_polish(mode, bool(self.config["smart_polish"])):
                 if configured_provider == "cloud" and result.get("polish_grant"):
                     try:
-                        final = self.cloud.polish(final, mode, str(result["polish_grant"]))
+                        final = self.cloud.polish(final, mode, str(result["polish_grant"]), use_memory_vocabulary=sync_this_capture and not private_capture)
                     except CloudError as exc:
                         polish_warning = f"{polish_warning + ' ' if polish_warning else ''}{exc} Basic cleanup was kept."
                 elif configured_provider != "cloud":
@@ -1036,31 +1073,43 @@ class CursayApplication(Adw.Application):
                     except PolishError as exc:
                         polish_warning = str(exc)
                         LOG.warning("%s", polish_warning)
-            recording_path = str(path) if bool(self.config["preserve_recordings"]) else None
-            self.store.add(
-                raw_text=raw,
-                final_text=final,
-                mode=mode,
-                language=str(result.get("language") or self.config["language"]),
-                duration_seconds=float(result.get("duration") or duration),
-                provider=str(result.get("provider") or "unknown"),
-                model=str(result.get("model") or (
-                    self.config["local_stt_model"] if configured_provider == "local" else self.config["stt_model"]
-                )),
-                fillers_removed=list(metadata["fillers_removed"]),
-                recording_path=recording_path,
-                cost_usd=reported_cost_usd(result),
-            )
+            recording_path = str(path) if bool(self.config["preserve_recordings"]) and not private_capture else None
+            row_id = None
+            if not private_capture:
+                row_id = self.store.add(
+                    raw_text=raw,
+                    final_text=final,
+                    mode=mode,
+                    language=str(result.get("language") or self.config["language"]),
+                    duration_seconds=float(result.get("duration") or duration),
+                    provider=str(result.get("provider") or "unknown"),
+                    model=str(result.get("model") or (
+                        self.config["local_stt_model"] if configured_provider == "local" else self.config["stt_model"]
+                    )),
+                    fillers_removed=list(metadata["fillers_removed"]),
+                    recording_path=recording_path,
+                    cost_usd=reported_cost_usd(result),
+                )
             GLib.idle_add(
                 self._completed,
                 final,
                 str(result.get("provider") or "speech service"),
                 polish_warning,
             )
+            # A secondary queue failure must never undo delivered dictation.
+            if row_id is not None and sync_this_capture:
+                try:
+                    row = self.store.get(row_id)
+                    if row:
+                        self.memory.enqueue(row, memory_scope)
+                    self.sync_memory()
+                except Exception:
+                    if self.window:
+                        GLib.idle_add(self.window.memory_status.set_label, "Memory queue could not be saved. Dictation is ready.")
         except (CloudError, TranscriptionError, OSError, ValueError) as exc:
             GLib.idle_add(self._failed, str(exc))
         finally:
-            if not bool(self.config["preserve_recordings"]):
+            if not bool(self.config["preserve_recordings"]) or private_capture:
                 path.unlink(missing_ok=True)
 
     def _completed(self, text: str, provider: str, polish_warning: str | None = None) -> bool:
@@ -1188,6 +1237,8 @@ class CursayApplication(Adw.Application):
     def update_setting(self, key: str, value: Any) -> None:
         self.config[key] = value
         save_config(self.config)
+        if key == "memory_sync" and value:
+            self.sync_memory()
 
     def link_cloud_device(self) -> None:
         if self.window:
@@ -1267,13 +1318,26 @@ class CursayApplication(Adw.Application):
 
     def sign_out_cloud(self) -> None:
         try:
-            self.cloud.revoke_and_sign_out()
+            self.memory.reset()
+            revoked = self.cloud.revoke_and_sign_out()
         except SecureStorageUnavailable as exc:
             self._show_error(str(exc))
             return
         if self.window:
-            self.window.set_cloud_account("This device is signed out and revoked.", linked=False)
-            self.window.toast("Cursay Cloud device revoked")
+            self.window.set_cloud_account("This device is signed out and revoked." if revoked else "Signed out locally. Open account devices to confirm remote revocation.", linked=False)
+            self.window.toast("Cursay Cloud signed out")
+
+    def _memory_tick(self) -> bool:
+        if self.config["memory_sync"]:
+            self.sync_memory()
+        return True
+
+    def sync_memory(self) -> None:
+        def worker() -> None:
+            status = self.memory.sync()
+            if self.window:
+                GLib.idle_add(self.window.memory_status.set_label, status)
+        threading.Thread(target=worker, daemon=True).start()
 
     def is_dark_theme(self) -> bool:
         return bool(self.style_manager and self.style_manager.get_dark())

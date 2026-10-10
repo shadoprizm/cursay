@@ -14,6 +14,9 @@ All notable user-facing changes to Cursay are documented here.
 
 ### Added
 
+- Added opt-in future-capture Memory sync on Mac, Ubuntu, and Windows with an account-bound offline outbox, approved vocabulary hints, private capture, app exclusions, and deletion replay protection. Account consent is managed separately in the browser workspace; existing history is not imported automatically.
+- Added Windows account linking, protected token storage, token refresh, revocation, managed cloud transcription, and local fallback.
+
 - Added optional Cursay Pro accounts with managed cloud transcription, Smart Polish, monthly usage reporting, browser-based device linking, secure token rotation, device revocation, and local fallback on Ubuntu and macOS.
 - Added the Next.js account website and metadata-only cloud API backed by Clerk, Stripe, Neon, and Vercel AI Gateway with per-request zero data retention.
 - Added subscription trials, fixed monthly/annual checkout, Customer Portal access, signature-verified webhook entitlements, monthly quotas, concurrency limits, and one-use polish grants.

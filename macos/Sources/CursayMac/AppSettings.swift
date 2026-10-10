@@ -66,6 +66,9 @@ final class AppSettings: ObservableObject {
     @Published var preserveRecordings: Bool {
         didSet { defaults.set(preserveRecordings, forKey: Key.preserveRecordings) }
     }
+    @Published var memorySync: Bool { didSet { defaults.set(memorySync, forKey: "memorySync") } }
+    @Published var privateCapture: Bool { didSet { defaults.set(privateCapture, forKey: "privateCapture") } }
+    @Published var excludedMemoryApps: String { didSet { defaults.set(excludedMemoryApps, forKey: "excludedMemoryApps") } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -89,5 +92,8 @@ final class AppSettings: ObservableObject {
         autoPaste = defaults.object(forKey: Key.autoPaste) as? Bool ?? true
         removeFillers = defaults.object(forKey: Key.removeFillers) as? Bool ?? true
         preserveRecordings = defaults.object(forKey: Key.preserveRecordings) as? Bool ?? false
+        memorySync = defaults.bool(forKey: "memorySync")
+        privateCapture = defaults.bool(forKey: "privateCapture")
+        excludedMemoryApps = defaults.string(forKey: "excludedMemoryApps") ?? ""
     }
 }

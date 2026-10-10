@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,10 @@ class HistoryStore:
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(dictations)")}
             if "cost_usd" not in columns:
                 connection.execute("ALTER TABLE dictations ADD COLUMN cost_usd REAL")
+            if "memory_id" not in columns:
+                connection.execute("ALTER TABLE dictations ADD COLUMN memory_id TEXT")
+                for row in connection.execute("SELECT id FROM dictations WHERE memory_id IS NULL").fetchall():
+                    connection.execute("UPDATE dictations SET memory_id=? WHERE id=?", (str(uuid.uuid4()), row["id"]))
         self.path.chmod(0o600)
 
     @contextmanager
@@ -73,8 +78,8 @@ class HistoryStore:
                 """
                 INSERT INTO dictations (
                     created_at, raw_text, final_text, mode, language, duration_seconds,
-                    provider, model, cost_usd, word_count, fillers_removed_json, recording_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    provider, model, cost_usd, word_count, fillers_removed_json, recording_path, memory_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     created_at,
@@ -89,9 +94,15 @@ class HistoryStore:
                     len(final_text.split()),
                     json.dumps(fillers_removed or []),
                     recording_path,
+                    str(uuid.uuid4()),
                 ),
             )
             return int(cursor.lastrowid)
+
+    def get(self, row_id: int) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM dictations WHERE id=?", (row_id,)).fetchone()
+        return dict(row) if row else None
 
     def search(self, query: str = "", limit: int = 100) -> list[dict[str, Any]]:
         pattern = f"%{query.strip()}%"

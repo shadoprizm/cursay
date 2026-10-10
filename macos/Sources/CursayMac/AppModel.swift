@@ -77,6 +77,7 @@ final class AppModel: ObservableObject {
     @Published var showCloudUpgradePrompt = false
     @Published private(set) var lastFallbackReason: String?
     @Published var searchQuery = ""
+    @Published private(set) var memoryStatus = "Memory sync off on this Mac"
 
     let settings = AppSettings()
     let pasteController = PasteController()
@@ -93,6 +94,11 @@ final class AppModel: ObservableObject {
     private var shortcutHeld = false
     private var backendCheckGeneration = 0
     private var cloudPreflight: CloudTranscriptionPreflight?
+    private var recordingPrivate = false
+    private var recordingMemory = false
+    private var memoryScope: String?
+    private var recordingMemoryScope: String?
+    private lazy var memory = MemorySync(client: cloudClient, directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Cursay"))
 
     init() {
         do {
@@ -124,6 +130,12 @@ final class AppModel: ObservableObject {
             pasteController.requestAccessibilityAccess()
         }
 
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.settings.memorySync else { return }
+                await self.syncMemory()
+            }
+        }
         Task {
             let microphoneAllowed = await AudioRecorder.requestPermission()
             logger.notice("Microphone permission allowed: \(microphoneAllowed, privacy: .public)")
@@ -168,6 +180,11 @@ final class AppModel: ObservableObject {
     func startRecording() {
         guard !phase.isBusy else { return }
         recordingTarget = pasteController.captureTarget()
+        let exclusions = Set(settings.excludedMemoryApps.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+        let target = recordingTarget?.application.bundleIdentifier
+        recordingMemory = settings.memorySync
+        recordingMemoryScope = memoryScope
+        recordingPrivate = settings.privateCapture || (!exclusions.isEmpty && (target == nil || exclusions.contains(target!)))
         do {
             try recorder.start()
             if settings.provider == .cloud {
@@ -210,11 +227,14 @@ final class AppModel: ObservableObject {
     func delete(_ dictation: Dictation) {
         history.removeAll { $0.id == dictation.id }
         persistHistory()
+        Task { memoryStatus = await memory.delete(dictation.id) }
     }
 
     func clearHistory() {
+        let entries = history
         history.removeAll()
         persistHistory()
+        Task { for entry in entries { memoryStatus = await memory.delete(entry.id) } }
     }
 
     func checkBackend() async {
@@ -301,6 +321,7 @@ final class AppModel: ObservableObject {
             cloudUsage = account.access == .upgradeRequired
                 ? "Cloud transcription requires Cursay Pro. Local Whisper is free and unlimited."
                 : "\(account.remainingSeconds / 60) of \(account.allowanceSeconds / 60) cloud minutes remaining"
+            if settings.memorySync { Task { await syncMemory() } }
         } catch {
             cloudLinked = false
             cloudAccess = nil
@@ -315,10 +336,12 @@ final class AppModel: ObservableObject {
     func signOutCloud() {
         Task {
             do {
-                try await cloudClient.revokeAndSignOut()
+                memoryScope = nil
+                try await memory.reset()
+                let revoked = try await cloudClient.revokeAndSignOut()
                 cloudLinked = false
                 cloudAccess = nil
-                cloudStatus = "This Mac is signed out and revoked."
+                cloudStatus = revoked ? "This Mac is signed out and revoked." : "Signed out locally. Open account devices to confirm remote revocation."
                 cloudUsage = ""
                 if settings.provider == .cloud { backendState = .unavailable("Link this Mac to use Cursay Cloud.") }
             } catch {
@@ -326,6 +349,8 @@ final class AppModel: ObservableObject {
             }
         }
     }
+
+    func syncMemory() async { memoryStatus = await memory.sync(); memoryScope = await memory.captureScope() }
 
     func requestAccessibilityAccess() {
         pasteController.requestAccessibilityAccess()
@@ -393,6 +418,11 @@ final class AppModel: ObservableObject {
     }
 
     private func process(recordingURL: URL, measuredDuration: Double) async {
+        let isPrivate = recordingPrivate
+        let syncThisCapture = recordingMemory && settings.memorySync
+        let scopeThisCapture = recordingMemoryScope
+        let words = syncThisCapture && !isPrivate && ![.raw, .code].contains(settings.mode) ? await memory.approvedVocabulary() : []
+        let vocabulary = words.prefix(100).joined(separator: ", ")
         let preflight = cloudPreflight
         cloudPreflight = nil
         defer { preflight?.cancel() }
@@ -400,7 +430,7 @@ final class AppModel: ObservableObject {
         var transcriptionFinished = processingStarted
         var polishFinished = processingStarted
         var workingURL = recordingURL
-        if settings.preserveRecordings {
+        if settings.preserveRecordings && !isPrivate {
             do {
                 workingURL = try preserveRecording(recordingURL)
             } catch {
@@ -430,7 +460,8 @@ final class AppModel: ObservableObject {
                         audioURL: workingURL,
                         endpoint: LocalBackendManager.endpoint,
                         model: "whisper-base.en",
-                        language: settings.language
+                        language: settings.language,
+                        vocabulary: vocabulary
                     )
                 }
             case .local:
@@ -439,7 +470,8 @@ final class AppModel: ObservableObject {
                     audioURL: workingURL,
                     endpoint: LocalBackendManager.endpoint,
                     model: "whisper-base.en",
-                    language: settings.language
+                    language: settings.language,
+                    vocabulary: vocabulary
                 )
             case .custom:
                 result = try await transcriptionClient.transcribe(
@@ -459,7 +491,7 @@ final class AppModel: ObservableObject {
             if settings.smartPolish && [.professional, .casual, .prompt].contains(settings.mode) {
                 do {
                     if cloudSucceeded, let grant = result.polishGrant {
-                        final = try await cloudClient.polish(text: final, style: settings.mode, grant: grant)
+                        final = try await cloudClient.polish(text: final, style: settings.mode, grant: grant, useMemoryVocabulary: syncThisCapture && !isPrivate)
                     } else if settings.provider != .cloud {
                         final = try await polishClient.polish(
                             final, mode: settings.mode, endpoint: settings.polishEndpoint, model: settings.polishModel
@@ -480,11 +512,10 @@ final class AppModel: ObservableObject {
                 provider: result.provider ?? "speech service",
                 model: result.model ?? (settings.provider == .local ? "whisper-base.en" : settings.model),
                 fillersRemoved: metadata.fillersRemoved,
-                recordingPath: settings.preserveRecordings ? workingURL.path : nil,
+                recordingPath: settings.preserveRecordings && !isPrivate ? workingURL.path : nil,
                 costUsd: result.reportedCostUsd
             )
-            history.insert(entry, at: 0)
-            persistHistory()
+            if !isPrivate { history.insert(entry, at: 0); persistHistory() }
             latestText = final
 
             let pasted: Bool
@@ -495,6 +526,7 @@ final class AppModel: ObservableObject {
                 _ = pasteController.copy(final)
             }
             phase = .complete(pasted: pasted)
+            if syncThisCapture && !isPrivate { Task { memoryStatus = await memory.record(entry, expectedScope: scopeThisCapture) } }
             logger.notice("Dictation completed; automatic paste succeeded: \(pasted, privacy: .public)")
             let sttTime = processingStarted.duration(to: transcriptionFinished)
             let polishTime = transcriptionFinished.duration(to: polishFinished)
@@ -506,7 +538,7 @@ final class AppModel: ObservableObject {
             logger.error("Dictation failed: \(error.localizedDescription, privacy: .public)")
         }
 
-        if !settings.preserveRecordings {
+        if !settings.preserveRecordings || isPrivate {
             try? FileManager.default.removeItem(at: workingURL)
         }
         recordingTarget = nil

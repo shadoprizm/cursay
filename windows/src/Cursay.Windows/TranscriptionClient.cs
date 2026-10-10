@@ -12,7 +12,10 @@ public sealed class TranscriptionClient : IDisposable
         string endpoint,
         string model,
         string language,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? bearerToken = null,
+        string? idempotencyKey = null,
+        string? vocabulary = null)
     {
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var url) ||
             (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
@@ -24,6 +27,7 @@ public sealed class TranscriptionClient : IDisposable
         using var body = new MultipartFormDataContent();
         body.Add(new StringContent(model), "model");
         body.Add(new StringContent("json"), "response_format");
+        if (!string.IsNullOrWhiteSpace(vocabulary)) body.Add(new StringContent(vocabulary[..Math.Min(2000, vocabulary.Length)]), "prompt");
         if (!string.IsNullOrWhiteSpace(language) && !language.Equals("auto", StringComparison.OrdinalIgnoreCase))
         {
             body.Add(new StringContent(language), "language");
@@ -32,7 +36,10 @@ public sealed class TranscriptionClient : IDisposable
         var audio = new StreamContent(file);
         audio.Headers.ContentType = new("audio/wav");
         body.Add(audio, "file", Path.GetFileName(audioPath));
-        using var response = await _client.PostAsync(url, body, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = body };
+        if (bearerToken is not null) request.Headers.Authorization = new("Bearer", bearerToken);
+        if (idempotencyKey is not null) request.Headers.Add("Idempotency-Key", idempotencyKey);
+        using var response = await _client.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var detail = (await response.Content.ReadAsStringAsync(cancellationToken)).Trim();

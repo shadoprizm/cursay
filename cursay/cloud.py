@@ -5,6 +5,7 @@ import shutil
 import socket
 import subprocess
 import time
+import threading
 import urllib.error
 import urllib.request
 import uuid
@@ -109,6 +110,8 @@ class CloudClient:
     def __init__(self, base_url: str, store: SecretServiceStore | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.store = store or SecretServiceStore()
+        self._credential_lock = threading.RLock()
+        self._generation = 0
 
     def _request(
         self,
@@ -151,6 +154,8 @@ class CloudClient:
         )
 
     def poll_link(self, device_code: str) -> CloudTokens | None:
+        with self._credential_lock:
+            generation = self._generation
         try:
             payload = self._request("/api/v1/device/token", method="POST", body={"device_code": device_code})
         except CloudError as exc:
@@ -165,26 +170,35 @@ class CloudClient:
             refresh_expires_at=now + float(payload["refresh_expires_in"]),
             device_id=str(payload["device_id"]),
         )
-        self.store.save(tokens)
+        with self._credential_lock:
+            if generation != self._generation:
+                raise CloudError("Linking canceled by sign-out.", code="not_linked")
+            self.store.save(tokens)
         return tokens
 
     def _refresh(self, tokens: CloudTokens) -> CloudTokens:
-        if tokens.refresh_expires_at <= time.time():
-            self.store.clear()
-            raise CloudError("Your Cursay Cloud sign-in expired. Link this device again.", code="sign_in_expired")
-        payload = self._request(
-            "/api/v1/device/refresh", method="POST", body={"refresh_token": tokens.refresh_token}
-        )
-        now = time.time()
-        updated = CloudTokens(
-            access_token=str(payload["access_token"]),
-            access_expires_at=now + float(payload["expires_in"]),
-            refresh_token=str(payload["refresh_token"]),
-            refresh_expires_at=now + float(payload["refresh_expires_in"]),
-            device_id=tokens.device_id,
-        )
-        self.store.save(updated)
-        return updated
+        with self._credential_lock:
+            saved = self.store.load()
+            if saved is None:
+                raise CloudError("Link this device again.", code="not_linked")
+            if saved.refresh_token != tokens.refresh_token:
+                return saved
+            if tokens.refresh_expires_at <= time.time():
+                self.store.clear()
+                raise CloudError("Your Cursay Cloud sign-in expired. Link this device again.", code="sign_in_expired")
+            payload = self._request(
+                "/api/v1/device/refresh", method="POST", body={"refresh_token": tokens.refresh_token}
+            )
+            now = time.time()
+            updated = CloudTokens(
+                access_token=str(payload["access_token"]),
+                access_expires_at=now + float(payload["expires_in"]),
+                refresh_token=str(payload["refresh_token"]),
+                refresh_expires_at=now + float(payload["refresh_expires_in"]),
+                device_id=tokens.device_id,
+            )
+            self.store.save(updated)
+            return updated
 
     def tokens(self) -> CloudTokens:
         tokens = self.store.load()
@@ -203,6 +217,17 @@ class CloudClient:
                 raise
             tokens = self._refresh(tokens)
             return self._request("/api/v1/account", access_token=tokens.access_token)
+
+    def memory(self, body: dict[str, Any] | None = None, cursor: int = 0) -> dict[str, Any]:
+        tokens = self.tokens()
+        path = f"/api/v1/memory?cursor={cursor}"
+        try:
+            return self._request(path, method="POST" if body else "GET", body=body, access_token=tokens.access_token)
+        except CloudError as exc:
+            if exc.status != 401:
+                raise
+            tokens = self._refresh(tokens)
+            return self._request(path, method="POST" if body else "GET", body=body, access_token=tokens.access_token)
 
     def transcribe(self, path: Path, language: str) -> dict[str, Any]:
         access_error = cloud_access_error(self.account())
@@ -223,12 +248,12 @@ class CloudClient:
                 path, endpoint, "cursay-cloud", language, bearer_token=tokens.access_token, idempotency_key=key
             )
 
-    def polish(self, text: str, style: str, grant: str) -> str:
+    def polish(self, text: str, style: str, grant: str, *, use_memory_vocabulary: bool = False) -> str:
         tokens = self.tokens()
         payload = self._request(
             "/api/v1/polish",
             method="POST",
-            body={"cleaned_text": text, "style": style, "polish_grant": grant},
+            body={"cleaned_text": text, "style": style, "polish_grant": grant, "use_memory_vocabulary": use_memory_vocabulary},
             access_token=tokens.access_token,
             timeout=90,
         )
@@ -237,13 +262,18 @@ class CloudClient:
             raise CloudError("Smart Polish returned no text.")
         return output
 
-    def revoke_and_sign_out(self) -> None:
-        tokens = self.store.load()
-        if tokens is not None:
-            try:
-                self._request(
-                    f"/api/v1/devices/{tokens.device_id}", method="DELETE", access_token=tokens.access_token
-                )
-            except CloudError:
-                pass
-        self.store.clear()
+    def revoke_and_sign_out(self) -> bool:
+        try:
+            tokens = self.tokens()
+        except CloudError:
+            tokens = self.store.load()
+        with self._credential_lock:
+            self._generation += 1
+            self.store.clear()
+        if tokens is None:
+            return True
+        try:
+            response = self._request(f"/api/v1/devices/{tokens.device_id}", method="DELETE", access_token=tokens.access_token)
+            return response.get("revoked") is True
+        except CloudError:
+            return False

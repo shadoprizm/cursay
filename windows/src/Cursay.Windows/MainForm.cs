@@ -18,6 +18,13 @@ public sealed class MainForm : Form
     private readonly TranscriptionClient _transcription = new();
     private readonly PasteController _paste = new();
     private readonly BackendProcess _backend = new();
+    private readonly CloudClient _cloud = new();
+    private readonly MemorySync _memory;
+    private bool _recordingPrivate;
+    private bool _recordingMemory;
+    private string? _recordingMemoryScope;
+    private readonly Label _memoryStatus = Label("Memory sync off", 9, FontStyle.Regular, Muted);
+    private readonly System.Windows.Forms.Timer _memoryTimer = new() { Interval = 60000 };
     private readonly Panel _content = new() { Dock = DockStyle.Fill, BackColor = Canvas };
     private readonly Label _status = Label("Ready — hold Ctrl + Space to dictate", 12, FontStyle.Regular, Muted);
     private readonly Label _backendStatus = Label("Speech service: checking…", 9, FontStyle.Regular, Muted);
@@ -34,6 +41,9 @@ public sealed class MainForm : Form
     {
         AppPaths.EnsureDirectories();
         _history = _historyStore.Load().ToList();
+        _memory = new MemorySync(_cloud);
+        _memoryTimer.Tick += async (_, _) => { if (_settings.MemorySync) _memoryStatus.Text = await _memory.SyncAsync(); };
+        _memoryTimer.Start();
         Text = "Cursay";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(850, 580);
@@ -270,6 +280,8 @@ public sealed class MainForm : Form
         delete.Location = new Point(width - 88, 89);
         delete.Click += (_, _) =>
         {
+            _memory.Delete(item.Id);
+            _ = _memory.SyncAsync();
             _history.RemoveAll(entry => entry.Id == item.Id);
             _historyStore.Save(_history);
             render();
@@ -326,12 +338,13 @@ public sealed class MainForm : Form
         {
             Location = new Point(35, 112),
             Width = 730,
-            Height = 450,
+            Height = 850,
             ColumnCount = 2,
-            RowCount = 9,
+            RowCount = 15,
             BackColor = Color.White,
             Padding = new Padding(22),
         };
+        page.AutoScroll = true;
         form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210));
         form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -343,6 +356,16 @@ public sealed class MainForm : Form
         var recordings = SettingCheck("Keep audio recordings", _settings.PreserveRecordings);
         var localBackend = SettingCheck("Start local speech service", _settings.StartLocalBackend);
         var launch = SettingCheck("Launch Cursay at sign-in", _settings.LaunchAtLogin);
+        var provider = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 430 };
+        provider.Items.AddRange(new object[] { "local", "cloud", "custom" }); provider.SelectedItem = _settings.Provider;
+        var memory = SettingCheck("Sync future dictations (workspace consent required)", _settings.MemorySync);
+        var privateCapture = SettingCheck("Private capture — no history, audio, or Memory", _settings.PrivateCapture);
+        var exclusions = SettingText(_settings.ExcludedMemoryApps);
+        var linking = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        var link = AccentButton("Link account"); link.Click += async (_, _) => await LinkAccountAsync(); linking.Controls.Add(link);
+        var workspace = AccentButton("Open Memory"); workspace.Click += (_, _) => Process.Start(new ProcessStartInfo("https://cursay.com/app") { UseShellExecute = true }); linking.Controls.Add(workspace);
+        var signout = AccentButton("Sign out"); signout.Click += async (_, _) => { try { _memory.Reset(); var revoked=await _cloud.RevokeAsync(); _memory.Reset(); _memoryStatus.Text=revoked?"Signed out and revoked":"Signed out locally. Confirm revocation in account devices."; } catch { _memoryStatus.Text="Sign-out could not finish. Check account device controls."; } }; linking.Controls.Add(signout);
+
         AddSetting(form, 0, "Transcription endpoint", endpoint);
         AddSetting(form, 1, "Model", model);
         AddSetting(form, 2, "Language", language);
@@ -351,6 +374,12 @@ public sealed class MainForm : Form
         AddSetting(form, 5, "Privacy", recordings);
         AddSetting(form, 6, "Local backend", localBackend);
         AddSetting(form, 7, "Startup", launch);
+        AddSetting(form, 8, "Speech provider", provider);
+        AddSetting(form, 9, "Account", linking);
+        AddSetting(form, 10, "Memory", memory);
+        AddSetting(form, 11, "Private capture", privateCapture);
+        AddSetting(form, 12, "Excluded process names", exclusions);
+        AddSetting(form, 13, "Memory status", _memoryStatus);
         var save = AccentButton("Save settings");
         save.Click += async (_, _) =>
         {
@@ -362,6 +391,10 @@ public sealed class MainForm : Form
             _settings.PreserveRecordings = recordings.Checked;
             _settings.StartLocalBackend = localBackend.Checked;
             _settings.LaunchAtLogin = launch.Checked;
+            _settings.Provider = provider.SelectedItem?.ToString() ?? "local";
+            _settings.MemorySync = memory.Checked; _settings.PrivateCapture = privateCapture.Checked;
+            _settings.ExcludedMemoryApps = exclusions.Text.Trim();
+            if (_settings.MemorySync) _memoryStatus.Text = await _memory.SyncAsync();
             SaveSettings();
             if (_settings.StartLocalBackend)
             {
@@ -370,9 +403,28 @@ public sealed class MainForm : Form
             await RefreshBackendStatusAsync(waitForStartup: false);
             SetStatus("Settings saved");
         };
-        form.Controls.Add(save, 1, 8);
+        form.Controls.Add(save, 1, 14);
         page.Controls.Add(form);
         _content.Controls.Add(page);
+    }
+
+    private async Task SyncMemoryAsync() { _memoryStatus.Text = await _memory.SyncAsync(); }
+    private async Task LinkAccountAsync()
+    {
+        try
+        {
+            var authorization = await _cloud.BeginLinkAsync();
+            SetStatus($"Linking code: {authorization["user_code"]!.GetValue<string>()}");
+            Process.Start(new ProcessStartInfo(authorization["verification_uri_complete"]!.GetValue<string>()) { UseShellExecute = true });
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(authorization["expires_in"]!.GetValue<int>());
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(authorization["interval"]!.GetValue<int>()));
+                if (await _cloud.PollLinkAsync(authorization["device_code"]!.GetValue<string>())) { SetStatus("Account linked. Enable Memory in the workspace."); if (_settings.MemorySync) await SyncMemoryAsync(); return; }
+            }
+            SetStatus("Linking code expired. Try again.", true);
+        }
+        catch (Exception e) { SetStatus(e.Message, true); }
     }
 
     private static void AddSetting(TableLayoutPanel form, int row, string label, Control control)
@@ -410,6 +462,11 @@ public sealed class MainForm : Form
         try
         {
             _pasteTarget = _paste.CaptureTarget(Handle);
+            var exclusions = _settings.ExcludedMemoryApps.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            var app = PasteController.ApplicationIdentity(_pasteTarget);
+            _recordingMemory = _settings.MemorySync;
+            _recordingMemoryScope = _memory.CaptureScope;
+            _recordingPrivate = _settings.PrivateCapture || (exclusions.Length > 0 && (app is null || exclusions.Contains(app, StringComparer.OrdinalIgnoreCase)));
             _recorder.Start();
             SetStatus("Listening… release Ctrl + Space when you are finished");
             if (_recordButton is not null)
@@ -431,6 +488,9 @@ public sealed class MainForm : Form
         }
         _busy = true;
         string? recordingPath = null;
+        var privateCapture = _recordingPrivate;
+        var syncThisCapture = _recordingMemory && _settings.MemorySync;
+        var memoryScope = _recordingMemoryScope;
         try
         {
             var recording = await _recorder.StopAsync();
@@ -442,11 +502,18 @@ public sealed class MainForm : Form
                 _recordButton.Enabled = false;
             }
 
-            var result = await _transcription.TranscribeAsync(recording.Path, _settings.Endpoint,
-                _settings.Model, _settings.Language);
+            TranscriptionResult result;
+            var vocabulary = syncThisCapture && !privateCapture && _settings.Mode is not (DictationMode.Raw or DictationMode.Code) ? _memory.Vocabulary : null;
+            if (_settings.Provider == "cloud")
+            {
+                try { result = await _cloud.TranscribeAsync(_transcription, recording.Path, _settings.Language); }
+                catch when (_settings.CloudLocalFallback)
+                { result = await _transcription.TranscribeAsync(recording.Path, "http://127.0.0.1:8765/v1/audio/transcriptions", "whisper-base.en", _settings.Language, vocabulary: vocabulary); _memoryStatus.Text = "Cloud unavailable; Local Whisper used."; }
+            }
+            else result = await _transcription.TranscribeAsync(recording.Path, _settings.Endpoint, _settings.Model, _settings.Language, vocabulary: _settings.Provider == "local" ? vocabulary : null);
             var cleaned = TranscriptCleaner.Clean(result.Text, _settings.Mode, _settings.RemoveFillers);
             string? preservedPath = null;
-            if (_settings.PreserveRecordings)
+            if (_settings.PreserveRecordings && !privateCapture)
             {
                 preservedPath = Path.Combine(AppPaths.RecordingsDirectory,
                     $"{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.wav");
@@ -458,8 +525,7 @@ public sealed class MainForm : Form
                 result.Language ?? _settings.Language, result.Duration ?? recording.Duration,
                 result.Provider ?? "speech service", result.Model ?? _settings.Model,
                 cleaned.Metadata.FillersRemoved, preservedPath);
-            _history.Insert(0, entry);
-            _historyStore.Save(_history);
+            if (!privateCapture) { _history.Insert(0, entry); _historyStore.Save(_history); }
             _latest.Text = cleaned.Text;
             _latest.ForeColor = Ink;
 
@@ -469,6 +535,11 @@ public sealed class MainForm : Form
                 throw new InvalidOperationException("Cursay could not update the clipboard.");
             }
             SetStatus(pasted ? "Pasted into your active app" : "Copied to the clipboard");
+            if (syncThisCapture && !privateCapture)
+            {
+                try { _memory.Enqueue(entry, memoryScope); _ = SyncMemoryAsync(); }
+                catch { _memoryStatus.Text = "Memory queue could not be saved. Dictation was delivered."; }
+            }
             _tray.ShowBalloonTip(1800, "Cursay", pasted ? "Dictation pasted" : "Dictation copied", ToolTipIcon.Info);
         }
         catch (Exception exception)
@@ -622,6 +693,8 @@ public sealed class MainForm : Form
         {
             _targetTimer.Dispose();
             _shortcut?.Dispose();
+            _memoryTimer.Dispose();
+            _cloud.Dispose();
             _recorder.Dispose();
             _transcription.Dispose();
             _backend.Dispose();

@@ -1,9 +1,18 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 
 namespace Cursay.Windows;
 
 public sealed class PasteController
 {
+    public static string? ApplicationIdentity(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return null;
+        try { GetWindowThreadProcessId(window, out var id); return Process.GetProcessById((int)id).ProcessName; }
+        catch { return null; }
+    }
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     private const uint InputKeyboard = 1;
     private const ushort VkControl = 0x11;
     private const ushort VkV = 0x56;
