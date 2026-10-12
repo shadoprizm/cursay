@@ -35,6 +35,13 @@ class AppPasteTests(unittest.TestCase):
         self.assertFalse(app.pending_auto_paste)
         self.assertEqual(app.pending_auto_paste_text, "")
 
+    def test_cancelled_delayed_paste_does_not_paste_correction_into_dialog(self) -> None:
+        app = self.make_app()
+        app.pending_auto_paste = False
+        app.pending_auto_paste_text = ""
+        self.assertFalse(app._paste_pending())
+        app.virtual_keyboard.paste.assert_not_called()
+
     def test_stale_clipboard_cancels_terminal_paste(self) -> None:
         app = self.make_app()
         with (

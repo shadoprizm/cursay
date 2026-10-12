@@ -6,11 +6,16 @@ All notable user-facing changes to Cursay are documented here.
 
 ### Added
 
+- Added Ubuntu correction editing from Latest dictation and History, explicitly reviewed replacement rules, and a Corrections page to add, update, disable, or delete local rules. Selected replacements apply to future dictations after Smart polish; Raw mode bypasses them.
+
 - Added consistent words-per-minute insights to Mac, Ubuntu, and Windows, including weighted period and all-time averages, latest-session speed, 14/30/90-day daily trends, and session speeds in History.
 - Added visible Memory navigation in Mac and Ubuntu linking to the account learning workspace while preserving separate consent, private capture, and future-only sync.
 - Show the source build revision in owner Mac and Ubuntu installations so installations can be compared with GitHub.
 
 ### Fixed
+
+- Preserve meaningful phrases such as “you know” and “I mean” in Ubuntu basic filler cleanup, explain the filler counter's scope, and cancel delayed automatic pastes when saving corrections.
+- Keep Ubuntu voice speed based on the original generated transcript after typed corrections, and identify unpublished source edits in Ubuntu build metadata with a source fingerprint.
 
 - Record microphone capture duration for speed calculations instead of provider-supplied duration.
 - Set the default Mac app bundle version to 1.3.0 to match current native source.

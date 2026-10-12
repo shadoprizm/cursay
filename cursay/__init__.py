@@ -1,11 +1,10 @@
 """Cursay: native, private dictation for Ubuntu."""
 
-import json
 from pathlib import Path
+
+from .build_info import read_build_info
 
 __version__ = "1.3.0"
 
-try:
-    __source_revision__ = json.loads(Path(__file__).with_name("build-info.json").read_text()).get("source_revision") or ""
-except (OSError, ValueError, TypeError):
-    __source_revision__ = ""
+__build_info__ = read_build_info(Path(__file__).with_name("build-info.json"))
+__source_revision__ = __build_info__.get("source_revision") or ""

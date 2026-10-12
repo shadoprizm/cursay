@@ -12,6 +12,12 @@ def words_per_minute(words: int, seconds: float) -> float | None:
     return words * 60.0 / seconds
 
 
+def dictation_word_count(row: dict[str, Any]) -> int:
+    """Measure the generated voice output, excluding subsequent typed corrections."""
+    original = row.get("original_final_text")
+    return len(original.split()) if original is not None else int(row["word_count"])
+
+
 def summarize_speed(
     rows: Iterable[dict[str, Any]], days: int = 30, now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -32,7 +38,7 @@ def summarize_speed(
     latest_at: datetime | None = None
     latest_wpm: float | None = None
     for row in rows:
-        words = int(row["word_count"])
+        words = dictation_word_count(row)
         seconds = float(row["duration_seconds"])
         wpm = words_per_minute(words, seconds)
         if wpm is not None:

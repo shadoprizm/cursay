@@ -8,8 +8,7 @@ from typing import Any
 
 
 FILLER_PATTERNS = (
-    r"\b(?:um+|uh+|erm+|er+|ah+)\b[,.]?\s*",
-    r"\b(?:you know|I mean)\b[,.]?\s*",
+    r"\b(?:um+|uh+|erm+)\b[,.]?\s*",
 )
 
 CODE_REPLACEMENTS = (
