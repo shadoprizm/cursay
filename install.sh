@@ -85,6 +85,7 @@ install_vendor_package() {
 mkdir -p "$stage_app/vendor"
 install_vendor_package wl-clipboard wl-clipboard vendor/wl-clipboard/usr/bin/wl-copy
 install_vendor_package ydotool ydotool vendor/ydotool/usr/bin/ydotoold
+install_vendor_package libsecret-tools libsecret-tools vendor/libsecret-tools/usr/bin/secret-tool
 
 if [ "$install_backend" = true ]; then
     if [ ! -x "$runtime_root/venv/bin/python" ]; then

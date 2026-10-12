@@ -41,6 +41,17 @@ class ConfigTests(unittest.TestCase):
             path.write_text('{"appearance": "sepia"}', encoding="utf-8")
             self.assertEqual(load_config(path)["appearance"], "system")
 
+    def test_paste_shortcut_defaults_validates_and_round_trips(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            self.assertEqual(load_config(path)["paste_shortcut"], "auto")
+            for mode in ("auto", "ctrl_v", "ctrl_shift_v"):
+                value = dict(DEFAULT_CONFIG, paste_shortcut=mode)
+                save_config(value, path)
+                self.assertEqual(load_config(path)["paste_shortcut"], mode)
+            path.write_text('{"paste_shortcut":"unknown"}', encoding="utf-8")
+            self.assertEqual(load_config(path)["paste_shortcut"], "auto")
+
     def test_existing_custom_endpoint_is_preserved_as_custom_provider(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"

@@ -2,9 +2,11 @@
 
 All notable user-facing changes to Cursay are documented here.
 
-## Unreleased
+## 1.3.0 - 2026-10-12
 
 ### Fixed
+
+- Preserve terminal dictation with automatic Ctrl+Shift+V in supported terminals and a manual paste shortcut override. Clipboard verification still prevents stale text from being pasted.
 
 - Start the Mac cloud access check during recording so short dictations can upload immediately after releasing the shortcut; recheck access for long recordings and record stage timings without dictated content.
 - Require an active Pro entitlement and available cloud allowance before marking managed cloud ready or uploading audio; show an upgrade action for free accounts and explain local fallback.
@@ -13,6 +15,9 @@ All notable user-facing changes to Cursay are documented here.
 - Correct spoken-code bracket cleanup on current macOS regular-expression engines.
 
 ### Added
+
+- Added opt-in future-capture Memory sync on Mac, Ubuntu, and Windows with an account-bound offline outbox, approved vocabulary hints, private capture, app exclusions, and deletion replay protection. Account consent is managed separately in the browser workspace; existing history is not imported automatically.
+- Added Windows account linking, protected token storage, token refresh, revocation, managed cloud transcription, and local fallback.
 
 - Added optional Cursay Pro accounts with managed cloud transcription, Smart Polish, monthly usage reporting, browser-based device linking, secure token rotation, device revocation, and local fallback on Ubuntu and macOS.
 - Added the Next.js account website and metadata-only cloud API backed by Clerk, Stripe, Neon, and Vercel AI Gateway with per-request zero data retention.

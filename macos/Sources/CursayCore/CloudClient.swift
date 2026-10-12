@@ -117,6 +117,8 @@ public actor CloudClient {
     private let store: KeychainTokenStore
     private let transcriptionClient = TranscriptionClient()
     private let decoder: JSONDecoder
+    private var generation = 0
+    private var refreshTask: Task<CloudTokens, Error>?
 
     public init(baseURL: URL, store: KeychainTokenStore = KeychainTokenStore()) {
         self.baseURL = baseURL
@@ -132,8 +134,10 @@ public actor CloudClient {
     }
 
     public func pollLink(deviceCode: String) async throws -> Bool {
+        let turn = generation
         do {
             let response: TokenResponse = try await request("/api/v1/device/token", method: "POST", body: ["device_code": deviceCode])
+            guard turn == generation else { throw CloudClientError.notLinked }
             let now = Date()
             try store.save(CloudTokens(
                 accessToken: response.accessToken,
@@ -151,6 +155,27 @@ public actor CloudClient {
     public func account() async throws -> CloudAccount {
         let tokens = try await validTokens()
         return try await authorizedRequest("/api/v1/account", tokens: tokens)
+    }
+
+    public func memoryRequest(method: String = "GET", body: Data? = nil, cursor: Int64 = 0) async throws -> Data {
+        var tokens = try await validTokens()
+        for attempt in 0..<2 {
+            var request = URLRequest(url: baseURL.appendingPathComponent("api/v1/memory").appending(queryItems: [URLQueryItem(name: "cursor", value: String(cursor))]))
+            request.httpMethod = method
+            request.httpBody = body
+            request.timeoutInterval = 30
+            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw CloudClientError.invalidResponse }
+            if http.statusCode == 401 && attempt == 0 { tokens = try await refresh(tokens); continue }
+            guard (200..<300).contains(http.statusCode) else {
+                let detail = try? decoder.decode(ErrorEnvelope.self, from: data).error
+                throw CloudClientError.service(statusCode: http.statusCode, code: detail?.code, message: detail?.message ?? "Memory could not sync.")
+            }
+            return data
+        }
+        throw CloudClientError.notLinked
     }
 
     public func transcribe(
@@ -185,22 +210,26 @@ public actor CloudClient {
         }
     }
 
-    public func polish(text: String, style: DictationMode, grant: String) async throws -> String {
+    public func polish(text: String, style: DictationMode, grant: String, useMemoryVocabulary: Bool = false) async throws -> String {
         let tokens = try await validTokens()
         let response: PolishResponse = try await authorizedRequest(
             "/api/v1/polish", method: "POST",
-            body: ["cleaned_text": text, "style": style.rawValue, "polish_grant": grant], tokens: tokens
+            body: ["cleaned_text": text, "style": style.rawValue, "polish_grant": grant, "use_memory_vocabulary": useMemoryVocabulary], tokens: tokens
         )
         return response.text
     }
 
-    public func revokeAndSignOut() async throws {
-        if let tokens = try store.load() {
-            let _: [String: Bool]? = try? await authorizedRequest(
-                "/api/v1/devices/\(tokens.deviceId)", method: "DELETE", tokens: tokens
-            )
-        }
+    public func revokeAndSignOut() async throws -> Bool {
+        var tokens: CloudTokens?
+        do { tokens = try await validTokens() } catch { tokens = try store.load() }
+        generation += 1
+        refreshTask?.cancel(); refreshTask = nil
         try store.clear()
+        guard let tokens else { return true }
+        let response: [String: Bool]? = try? await authorizedRequest(
+            "/api/v1/devices/\(tokens.deviceId)", method: "DELETE", tokens: tokens
+        )
+        return response?["revoked"] == true
     }
 
     private func validTokens() async throws -> CloudTokens {
@@ -210,10 +239,22 @@ public actor CloudClient {
     }
 
     private func refresh(_ current: CloudTokens) async throws -> CloudTokens {
+        if let refreshTask { return try await refreshTask.value }
+        guard let saved = try store.load() else { throw CloudClientError.notLinked }
+        if saved.refreshToken != current.refreshToken { return saved }
+        let turn = generation
+        let task = Task { try await performRefresh(current, turn: turn) }
+        refreshTask = task
+        defer { if turn == generation { refreshTask = nil } }
+        return try await task.value
+    }
+
+    private func performRefresh(_ current: CloudTokens, turn: Int) async throws -> CloudTokens {
         guard current.refreshExpiresAt > Date() else { try store.clear(); throw CloudClientError.notLinked }
         let response: TokenResponse = try await request(
             "/api/v1/device/refresh", method: "POST", body: ["refresh_token": current.refreshToken]
         )
+        guard turn == generation else { throw CloudClientError.notLinked }
         let now = Date()
         let tokens = CloudTokens(
             accessToken: response.accessToken,
@@ -227,13 +268,13 @@ public actor CloudClient {
     }
 
     private func authorizedRequest<T: Decodable>(
-        _ path: String, method: String = "GET", body: [String: String]? = nil, tokens: CloudTokens
+        _ path: String, method: String = "GET", body: [String: Any]? = nil, tokens: CloudTokens
     ) async throws -> T {
         try await request(path, method: method, body: body, bearerToken: tokens.accessToken)
     }
 
     private func request<T: Decodable>(
-        _ path: String, method: String = "GET", body: [String: String]? = nil, bearerToken: String? = nil
+        _ path: String, method: String = "GET", body: [String: Any]? = nil, bearerToken: String? = nil
     ) async throws -> T {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw CloudClientError.invalidResponse }
         var request = URLRequest(url: url)

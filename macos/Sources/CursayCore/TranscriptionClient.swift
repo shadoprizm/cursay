@@ -29,7 +29,8 @@ public struct TranscriptionClient: Sendable {
         model: String,
         language: String,
         bearerToken: String? = nil,
-        idempotencyKey: String? = nil
+        idempotencyKey: String? = nil,
+        vocabulary: String? = nil
     ) async throws -> TranscriptionResult {
         guard let url = URL(string: endpoint),
               let scheme = url.scheme?.lowercased(),
@@ -42,6 +43,9 @@ public struct TranscriptionClient: Sendable {
         var body = Data()
         body.appendFormField(name: "model", value: model, boundary: boundary)
         body.appendFormField(name: "response_format", value: "json", boundary: boundary)
+        if let vocabulary, !vocabulary.isEmpty {
+            body.appendFormField(name: "prompt", value: String(vocabulary.prefix(2000)), boundary: boundary)
+        }
         if !language.isEmpty, language.lowercased() != "auto" {
             body.appendFormField(name: "language", value: language, boundary: boundary)
         }

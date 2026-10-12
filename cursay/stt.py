@@ -51,12 +51,15 @@ def transcribe(
     timeout: float = 150.0,
     bearer_token: str | None = None,
     idempotency_key: str | None = None,
+    vocabulary: str | None = None,
 ) -> dict[str, Any]:
     if not path.is_file():
         raise TranscriptionError(f"Audio file does not exist: {path}")
     fields = {"model": model, "response_format": "json"}
     if language and language.lower() != "auto":
         fields["language"] = language
+    if vocabulary:
+        fields["prompt"] = vocabulary[:2000]
     body, boundary = _multipart(fields, path)
     headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
     if bearer_token:

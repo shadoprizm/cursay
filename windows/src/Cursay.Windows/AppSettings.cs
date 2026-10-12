@@ -14,6 +14,11 @@ public sealed class AppSettings
     public bool PreserveRecordings { get; set; }
     public bool StartLocalBackend { get; set; } = true;
     public bool LaunchAtLogin { get; set; }
+    public string Provider { get; set; } = "local";
+    public bool CloudLocalFallback { get; set; } = true;
+    public bool MemorySync { get; set; }
+    public bool PrivateCapture { get; set; }
+    public string ExcludedMemoryApps { get; set; } = "";
 
     public static AppSettings Load(string? path = null)
     {

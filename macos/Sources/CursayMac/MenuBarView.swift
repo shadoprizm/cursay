@@ -25,6 +25,8 @@ struct MenuBarView: View {
             }
 
             Divider()
+            Toggle("Private capture", isOn: Binding(get: { model.settings.privateCapture }, set: { model.settings.privateCapture = $0 }))
+            Link("Open Memory", destination: URL(string: "https://cursay.com/app")!)
 
             Button("Check for Updates…") { model.checkForUpdates() }
                 .disabled(!model.updates.canCheckForUpdates)
