@@ -36,6 +36,10 @@ public struct CloudAccount: Decodable, Sendable {
     public let usedSeconds: Int
     public let remainingSeconds: Int
     public let periodEndsAt: String?
+
+    public var deviceSummary: String {
+        deviceLimit == 0 ? "\(deviceCount) linked · Unlimited devices" : "\(deviceCount) of \(deviceLimit) devices"
+    }
 }
 
 public struct CloudTokens: Codable, Sendable {

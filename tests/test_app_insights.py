@@ -10,6 +10,16 @@ from cursay.app import CursayApplication
 
 
 class AppInsightsTests(unittest.TestCase):
+    def test_admin_device_summary_shows_unlimited_and_preserves_cloud_quota(self) -> None:
+        app = SimpleNamespace(config={"stt_provider": "local"}, window=Mock())
+        account = {"plan": "pro", "entitlement": True, "device_count": 12, "device_limit": 0,
+                   "allowance_seconds": 90000, "remaining_seconds": 0}
+        CursayApplication._cloud_account_result(app, account)
+        status, usage = app.window.set_cloud_account.call_args.args
+        self.assertIn("12 linked • Unlimited devices", status)
+        self.assertIn("allowance is used up", usage)
+        self.assertFalse(app.window.set_cloud_account.call_args.kwargs["upgrade_required"])
+
     def test_saved_duration_uses_recording_time_instead_of_provider_duration(self) -> None:
         app = SimpleNamespace(
             config={

@@ -1538,9 +1538,13 @@ class CursayApplication(Adw.Application):
         plan = str(account.get("plan", "free")).title()
         access_error = cloud_access_error(account)
         upgrade_required = access_error is not None and access_error.code == "subscription_required"
+        device_count = account.get("device_count", 0)
+        device_limit = account.get("device_limit", 3)
+        devices = (f"{device_count} linked • Unlimited devices" if device_limit == 0
+                   else f"{device_count} of {device_limit} devices")
         if self.window:
             self.window.set_cloud_account(
-                f"Linked • {plan} • {account.get('device_count', 0)} of {account.get('device_limit', 3)} devices",
+                f"Linked • {plan} • {devices}",
                 str(access_error) if access_error else f"{remaining:,} of {allowance:,} cloud minutes remaining",
                 linked=True,
                 upgrade_required=upgrade_required,
