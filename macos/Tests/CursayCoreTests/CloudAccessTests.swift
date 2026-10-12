@@ -2,15 +2,23 @@ import CursayCore
 import XCTest
 
 final class CloudAccessTests: XCTestCase {
-    private func account(plan: String, entitled: Bool, remaining: Int, allowance: Int = 90_000) throws -> CloudAccount {
+    private func account(plan: String, entitled: Bool, remaining: Int, allowance: Int = 90_000, deviceLimit: Int = 3) throws -> CloudAccount {
         let payload: [String: Any] = [
             "plan": plan, "status": "active", "entitlement": entitled,
-            "device_count": 1, "device_limit": 3, "allowance_seconds": allowance,
+            "device_count": 1, "device_limit": deviceLimit, "allowance_seconds": allowance,
             "used_seconds": max(0, allowance - remaining), "remaining_seconds": remaining,
         ]
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(CloudAccount.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+
+    func testUnlimitedDeviceResponseDecodesAndDisplaysWithoutChangingCloudAccess() throws {
+        let admin = try account(plan: "pro", entitled: true, remaining: 60, deviceLimit: 0)
+        XCTAssertEqual(admin.deviceSummary, "1 linked · Unlimited devices")
+        XCTAssertEqual(admin.access, .available)
+        XCTAssertEqual(try account(plan: "pro", entitled: true, remaining: 0, deviceLimit: 0).access, .allowanceExhausted)
+        XCTAssertEqual(try account(plan: "pro", entitled: true, remaining: 60).deviceSummary, "1 of 3 devices")
     }
 
     func testFreeAccountRequiresUpgradeEvenThoughDeviceIsLinked() throws {

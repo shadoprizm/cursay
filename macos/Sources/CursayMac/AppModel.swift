@@ -317,7 +317,7 @@ final class AppModel: ObservableObject {
             let account = try await cloudClient.account()
             cloudLinked = true
             cloudAccess = account.access
-            cloudStatus = "Linked · \(account.plan.capitalized) · \(account.deviceCount) of \(account.deviceLimit) devices"
+            cloudStatus = "Linked · \(account.plan.capitalized) · \(account.deviceSummary)"
             cloudUsage = account.access == .upgradeRequired
                 ? "Cloud transcription requires Cursay Pro. Local Whisper is free and unlimited."
                 : "\(account.remainingSeconds / 60) of \(account.allowanceSeconds / 60) cloud minutes remaining"
