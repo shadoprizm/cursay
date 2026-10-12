@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .config import APP_ID
+from .config import APP_ID, PROJECT_DIR
 from .stt import TranscriptionError, transcribe
 
 
@@ -56,7 +56,8 @@ class SecretServiceStore:
     """Stores the token bundle only in GNOME Secret Service via libsecret."""
 
     def __init__(self, executable: str | None = None) -> None:
-        self.executable = executable or shutil.which("secret-tool")
+        bundled = PROJECT_DIR / "vendor" / "libsecret-tools" / "usr" / "bin" / "secret-tool"
+        self.executable = executable or shutil.which("secret-tool") or (str(bundled) if bundled.is_file() else None)
 
     def _command(self, *arguments: str, input_data: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
         if not self.executable:

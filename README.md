@@ -37,7 +37,7 @@ It is built for people who want a free, native Wispr Flow-style workflow without
 
 | Platform | Status | Start here |
 |---|---|---|
-| Ubuntu GNOME on Wayland | Stable — current release: **1.3.0** | [Install on Ubuntu](#install-on-ubuntu) |
+| Ubuntu GNOME on Wayland | Stable public release: **1.2.1**; **1.3.0** release candidate | [Install on Ubuntu](#install-on-ubuntu) |
 | Windows 10/11 x64 | Native release — build artifact | [Windows guide](windows/README.md) |
 | macOS 13+ | Native app — signed release pipeline | [Mac build guide](macos/README.md) |
 
