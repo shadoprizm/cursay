@@ -158,7 +158,9 @@ class MemorySync:
                 if state["enabled"]
                 else "Memory off — enable it in the workspace"
             )
-        except Exception:
+        except Exception as exc:
+            if getattr(exc, "code", None) == "memory_not_available":
+                return "Account Memory is unavailable on the server. Local dictation is still available."
             return "Memory sync pending. Local dictation is still available."
         finally:
             self._sync_lock.release()

@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock
 from cursay.memory import MemorySync, is_private_capture
 from cursay.storage import HistoryStore
+from cursay.cloud import CloudError
 
 
 class MemoryTests(unittest.TestCase):
@@ -67,6 +68,23 @@ class MemoryTests(unittest.TestCase):
         ]
         self.memory.sync()
         self.assertEqual(self.memory.approved_vocabulary(), ["Cursay"])
+
+    def test_disabled_server_reports_unavailability_without_discarding_queue(self):
+        self.memory.sync()
+        self.memory.enqueue(self.row(), self.memory.capture_scope())
+        self.cloud.memory.side_effect = CloudError("private server detail", status=503, code="memory_not_available")
+        self.assertEqual(
+            self.memory.sync(),
+            "Account Memory is unavailable on the server. Local dictation is still available.",
+        )
+        with self.store.connect() as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM memory_outbox").fetchone()[0], 1)
+
+    def test_temporary_failure_remains_pending_and_recovers(self):
+        self.cloud.memory.side_effect = CloudError("private server detail", status=503, code="memory_unavailable")
+        self.assertEqual(self.memory.sync(), "Memory sync pending. Local dictation is still available.")
+        self.cloud.memory.side_effect = None
+        self.assertEqual(self.memory.sync(), "Memory synced · 0 approved words")
 
     def test_signout_wins_over_inflight_snapshot(self):
         self.memory.sync()

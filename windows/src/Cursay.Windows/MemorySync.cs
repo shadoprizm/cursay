@@ -94,6 +94,8 @@ public sealed class MemorySync(CloudClient cloud)
             }
             lock (_stateLock) return _state["enabled"]!.GetValue<bool>() ? "Memory synced" : "Memory off — enable it in the workspace";
         }
+        catch (CloudServiceException e) when (e.Code == "memory_not_available")
+        { return "Account Memory is unavailable on the server. Local dictation is still available."; }
         catch { return "Memory sync pending. Local dictation is available."; }
         finally { _sync.Release(); }
     }
