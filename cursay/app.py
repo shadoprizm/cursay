@@ -20,7 +20,9 @@ from .audio import AudioError, PipeWireRecorder
 from .cleanup import PolishError, clean_transcript, polish_transcript, should_polish
 from .memory import MemorySync, is_private_capture
 from .cloud import CloudClient, CloudError, SecureStorageUnavailable, cloud_access_error
-from .config import APPEARANCE_OPTIONS, APP_ID, APP_NAME, PROJECT_DIR, load_config, save_config
+from .config import (
+    APPEARANCE_OPTIONS, APP_ID, APP_NAME, PASTE_SHORTCUT_OPTIONS, PROJECT_DIR, load_config, save_config,
+)
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
 from .pricing import format_usd, reported_cost_usd
@@ -485,10 +487,32 @@ class CursayWindow(Adw.ApplicationWindow):
         self.auto_paste_switch = self._switch_row(
             behavior,
             "Paste automatically",
-            "Uses a private keyboard-only input device to send Ctrl+V; no Remote Desktop access is used.",
+            "Uses Ctrl+Shift+V in detected terminals and Ctrl+V in other apps.",
             bool(self.app.config["auto_paste"]),
             lambda value: self.app.update_setting("auto_paste", value),
         )
+        paste_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        paste_label = Gtk.Label(label="Paste shortcut", xalign=0)
+        paste_label.set_hexpand(True)
+        paste_row.append(paste_label)
+        self.paste_dropdown = Gtk.DropDown.new_from_strings([
+            "Automatic", "Ctrl+V", "Ctrl+Shift+V (terminals)",
+        ])
+        self.paste_dropdown.set_selected(PASTE_SHORTCUT_OPTIONS.index(self.app.config["paste_shortcut"]))
+        self.paste_dropdown.connect(
+            "notify::selected",
+            lambda dropdown, _param: self.app.update_setting(
+                "paste_shortcut", PASTE_SHORTCUT_OPTIONS[dropdown.get_selected()],
+            ),
+        )
+        paste_row.append(self.paste_dropdown)
+        behavior.append(paste_row)
+        paste_help = Gtk.Label(
+            label="If Automatic cannot detect your terminal, choose Ctrl+Shift+V here.", xalign=0,
+        )
+        paste_help.set_wrap(True)
+        paste_help.add_css_class("dim-label")
+        behavior.append(paste_help)
         self.fillers_switch = self._switch_row(
             behavior,
             "Remove filler words",
@@ -964,7 +988,7 @@ class CursayApplication(Adw.Application):
             self.shortcuts.configure()
 
     def _paste_pending(self) -> bool:
-        pasted = self.virtual_keyboard.paste()
+        pasted = self.virtual_keyboard.paste(str(self.config["paste_shortcut"]))
         self.pending_auto_paste = False
         self.pending_auto_paste_text = ""
         self.notify(

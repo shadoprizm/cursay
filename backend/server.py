@@ -32,7 +32,7 @@ def _default_model_dir() -> Path:
 
 MODEL_DIR = Path(os.getenv("CURSAY_MODEL_DIR", _default_model_dir()))
 
-app = FastAPI(title="Cursay Speech-to-Text", version="1.2.1")
+app = FastAPI(title="Cursay Speech-to-Text", version="1.3.0")
 _lock = threading.Lock()
 _model: WhisperModel | None = None
 

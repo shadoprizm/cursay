@@ -13,6 +13,7 @@ APP_ID = "io.github.shadoprizm.Cursay"
 APP_NAME = "Cursay"
 APPEARANCE_OPTIONS = ("system", "light", "dark")
 STT_PROVIDER_OPTIONS = ("local", "cloud", "custom")
+PASTE_SHORTCUT_OPTIONS = ("auto", "ctrl_v", "ctrl_shift_v")
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "cursay"
 DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "cursay"
@@ -37,6 +38,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "local_stt_model": "whisper-base.en",
     "shortcut": "<Control>space",
     "auto_paste": True,
+    "paste_shortcut": "auto",
     "remove_fillers": True,
     "smart_polish": False,
     "polish_endpoint": "http://127.0.0.1:8082/v1/chat/completions",
@@ -108,6 +110,8 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, Any]:
         config["appearance"] = "system"
     if config["stt_provider"] not in STT_PROVIDER_OPTIONS:
         config["stt_provider"] = "local"
+    if config["paste_shortcut"] not in PASTE_SHORTCUT_OPTIONS:
+        config["paste_shortcut"] = "auto"
     return config
 
 

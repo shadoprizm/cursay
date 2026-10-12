@@ -2,9 +2,11 @@
 
 All notable user-facing changes to Cursay are documented here.
 
-## Unreleased
+## 1.3.0 - 2026-10-12
 
 ### Fixed
+
+- Preserve terminal dictation with automatic Ctrl+Shift+V in supported terminals and a manual paste shortcut override. Clipboard verification still prevents stale text from being pasted.
 
 - Start the Mac cloud access check during recording so short dictations can upload immediately after releasing the shortcut; recheck access for long recordings and record stage timings without dictated content.
 - Require an active Pro entitlement and available cloud allowance before marking managed cloud ready or uploading audio; show an upgrade action for free accounts and explain local fallback.
