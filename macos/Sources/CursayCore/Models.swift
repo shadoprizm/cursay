@@ -131,6 +131,10 @@ public struct Dictation: Identifiable, Codable, Equatable, Sendable {
     public var wordCount: Int {
         finalText.split(whereSeparator: { $0.isWhitespace }).count
     }
+
+    public var wordsPerMinute: Double? {
+        DictationSpeed.rate(words: wordCount, seconds: durationSeconds)
+    }
 }
 
 public struct FillerStat: Identifiable, Equatable, Sendable {

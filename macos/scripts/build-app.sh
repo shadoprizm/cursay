@@ -42,6 +42,10 @@ cp "$BIN_DIR/Cursay" "$MACOS_CONTENTS_DIR/Cursay"
 # Frameworks search path to a standalone executable copied out of .build.
 install_name_tool -add_rpath '@executable_path/../Frameworks' "$MACOS_CONTENTS_DIR/Cursay"
 cp "$MACOS_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
+SOURCE_REVISION="$(git -C "$REPOSITORY_DIR" rev-parse HEAD 2>/dev/null || true)"
+if [[ -n "$SOURCE_REVISION" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :CursaySourceRevision string $SOURCE_REVISION" "$CONTENTS_DIR/Info.plist"
+fi
 ditto "$BACKEND_HELPER_DIR" "$RESOURCES_DIR/CursaySTT"
 
 SPARKLE_FRAMEWORK=$(find "$MACOS_DIR/.build" -type d -name Sparkle.framework -print -quit)

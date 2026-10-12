@@ -33,6 +33,7 @@ public sealed record Dictation(
     string? RecordingPath)
 {
     public int WordCount => FinalText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+    public double? WordsPerMinute => DictationSpeed.Rate(WordCount, DurationSeconds);
 
     public static Dictation Create(
         string rawText,

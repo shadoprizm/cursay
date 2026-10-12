@@ -57,6 +57,7 @@ Silence does not end the recording. Releasing the shortcut does.
 - **Local by default:** faster-whisper runs on your machine after a one-time model download.
 - **Optional Pro cloud:** managed multilingual transcription and Smart Polish with a 1,500-minute monthly allowance and local fallback.
 - **Private history:** searchable transcripts stay on your device.
+- **Dictation speed:** track words per minute by session and over 14, 30, or 90 days in native Insights, including your existing history.
 - **Cost visibility:** Insights estimates known provider charges from recorded audio duration and uses exact
   provider-reported costs when available.
 - **Strict push-to-talk:** recording follows the key press instead of guessing when you finished speaking.
@@ -161,6 +162,17 @@ The included backend uses `faster-whisper` with the English `base.en` model on C
 
 Cursay can also call an OpenAI-compatible `/v1/audio/transcriptions` endpoint. Set `stt_endpoint` and `stt_model` in `~/.config/cursay/config.json`. When you choose a remote endpoint, audio is governed by that provider's privacy policy; the included backend remains entirely local after its model is downloaded.
 
+Native **Insights → Dictation speed** shows weighted period and all-time WPM averages, your latest session's
+speed, and a daily trend for the last 14, 30, or 90 local calendar days. Speed is final transcript words divided
+by recording minutes, including pauses. Transcription and Smart Polish wait time are excluded. Existing
+history is included; sessions without words or timing do not affect speed averages. Private captures are never
+added to history or analytics. These statistics are local to each device.
+
+On Mac and Ubuntu, the **Memory** page links to the account workspace for saved thoughts, Ask Cursay,
+reviews, projects, and confirmed vocabulary. Windows has a workspace action in Insights and Settings.
+Desktop sync requires a linked account, separate workspace consent, and opting into future-capture sync.
+The workspace reports account feature availability; see [release status](docs/RELEASE_STATUS.md) for rollout gates.
+
 The Insights page shows a provider/model cost breakdown. xAI REST speech-to-text is estimated from locally
 recorded duration at its [published rate](https://docs.x.ai/developers/pricing); unknown custom providers are left
 unpriced rather than guessed. Provider invoices remain the final billing authority.
@@ -238,10 +250,13 @@ Uninstalling preserves settings and dictation history. The script prints the dat
 
 Cursay is available under the [MIT License](LICENSE).
 
-## Cursay Memory (release candidate)
+## Cursay Memory
 
 Future dictations can sync to account Memory after separate consent at `https://cursay.com/app` and enabling sync on each device. Past local history is not imported. The browser workspace provides saved thoughts, search, Ask Cursay, reviews, projects, explicit vocabulary corrections and reviewable suggestions. Intelligence uses OpenAI GPT-6 Luna through Vercel AI Gateway; speech and Smart Polish keep their existing providers.
 
 Private capture keeps a thought out of local history, retained audio, and Memory. App exclusions fail closed when application identity is unavailable. Only approved vocabulary can inform Local Whisper hints or opted-in Cloud Smart Polish, and Raw/Code modes remain unchanged. Account-bound offline queues apply server deletions before uploads; forgetting Memory invalidates old queued data. Windows uses DPAPI for cloud credentials and its Memory outbox.
 
-This candidate is implemented and tested locally; the managed Memory service is not yet live. Cloud staging migration, backup/deletion-restore verification, authenticated browser/native acceptance, and signed release checks must pass before launch. Keep using the existing released dictation while those gates are completed.
+The browser dictation workspace is live, and native capture sync is in current source. Production stored
+Memory and paid credit top-ups remain disabled pending the owner and storage-readiness gates recorded in
+[release status](docs/RELEASE_STATUS.md). Desktop source and cloud source live in separate repositories;
+see [workspace alignment](docs/WORKSPACE_ALIGNMENT.md) for their roles and verified locations.

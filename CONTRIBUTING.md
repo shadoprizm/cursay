@@ -33,10 +33,11 @@ dotnet test .\windows\Cursay.Windows.sln -c Release
 
 The full Windows build also requires Python 3.12 and Inno Setup 6. See [windows/README.md](windows/README.md).
 
-The managed website/API is a separate Next.js project:
+The managed website/API is a separate private Next.js repository, not a `website/` folder in this public
+desktop repository. See [workspace alignment](docs/WORKSPACE_ALIGNMENT.md) for the current release checkout.
+Run its checks from the root of that repository:
 
 ```bash
-cd website
 npm ci
 npm test
 npm run typecheck
@@ -67,6 +68,10 @@ uv pip compile --generate-hashes \
 - Do not introduce Remote Desktop, screen-capture, or pointer-control permissions for automatic paste.
 - Confirm that long dictations wrap without expanding the application window.
 - Keep all Stripe price selection server-side and treat signed webhooks as the sole subscription authority.
-- Keep cloud persistence metadata-only; never log or persist audio, transcripts, polished text, or prompts.
+- Keep ordinary speech/Smart Polish persistence metadata-only and never log content. Explicitly consented
+  Memory storage follows the private cloud repository's consent, deletion, journal, and recovery contract.
+- Use `tests/fixtures/dictation_speed.json` for speed contract changes. Python, Swift, and .NET all run the same cases.
+- Before editing or installing, fetch origin and compare the checkout, GitHub main, and installed build revision.
+  Build and install from reconciled current main; preserve unpublished changes before changing branches.
 
 By contributing, you agree that your work will be released under the MIT License.

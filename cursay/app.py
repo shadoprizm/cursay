@@ -16,7 +16,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from . import __version__
+from . import __source_revision__, __version__
 from .audio import AudioError, PipeWireRecorder
 from .cleanup import PolishError, clean_transcript, polish_transcript, should_polish
 from .memory import MemorySync, is_private_capture
@@ -24,9 +24,11 @@ from .cloud import CloudClient, CloudError, SecureStorageUnavailable, cloud_acce
 from .config import (
     APPEARANCE_OPTIONS, APP_ID, APP_NAME, DEFAULT_CONFIG, PASTE_SHORTCUT_OPTIONS, PROJECT_DIR, load_config, save_config,
 )
+from .insights import words_per_minute
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
 from .pricing import format_usd, reported_cost_usd
+from .speed_chart import SpeedChart
 from .storage import HistoryStore
 from .stt import TranscriptionError, health, transcribe
 from .updates import (
@@ -203,7 +205,8 @@ class CursayWindow(Adw.ApplicationWindow):
         sidebar = Gtk.StackSidebar(stack=self.stack)
         sidebar.set_vexpand(True)
         sidebar_box.append(sidebar)
-        version = Gtk.Label(label=f"Private • Local\nVersion {__version__}")
+        build = f"\nBuild {__source_revision__[:7]}" if __source_revision__ else ""
+        version = Gtk.Label(label=f"Private • Local\nVersion {__version__}{build}")
         version.add_css_class("version-label")
         sidebar_box.append(version)
         shell.append(sidebar_box)
@@ -212,10 +215,12 @@ class CursayWindow(Adw.ApplicationWindow):
         self.dashboard_page = self._dashboard()
         self.history_page = self._history()
         self.insights_page = self._insights()
+        self.memory_page = self._memory()
         self.settings_page = self._settings()
         self.stack.add_titled(self.dashboard_page, "dashboard", "Dictate")
         self.stack.add_titled(self.history_page, "history", "History")
         self.stack.add_titled(self.insights_page, "insights", "Insights")
+        self.stack.add_titled(self.memory_page, "memory", "Memory")
         self.stack.add_titled(self.settings_page, "settings", "Settings")
         self.stack.connect("notify::visible-child-name", self._page_changed)
         self.connect("close-request", self._on_close_request)
@@ -230,6 +235,8 @@ class CursayWindow(Adw.ApplicationWindow):
         self.remove_css_class("theme-dark")
         self.remove_css_class("theme-light")
         self.add_css_class("theme-dark" if dark else "theme-light")
+        if hasattr(self, "speed_chart"):
+            self.speed_chart.queue_draw()
 
     @staticmethod
     def _page_container() -> Gtk.ScrolledWindow:
@@ -393,6 +400,42 @@ class CursayWindow(Adw.ApplicationWindow):
         self.metric_minutes = self._metric(metrics, "Minutes")
         self.metric_cost = self._metric(metrics, "Est. cost (USD)")
         content.append(metrics)
+        speed_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        speed_card.add_css_class("card")
+        speed_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        speed_title = self._section_title("Dictation speed", "Words per minute (WPM)")
+        speed_title.set_hexpand(True)
+        speed_header.append(speed_title)
+        self.speed_period = Gtk.DropDown.new_from_strings(["Last 14 days", "Last 30 days", "Last 90 days"])
+        self.speed_period.set_selected(1)
+        self.speed_period.set_valign(Gtk.Align.CENTER)
+        speed_header.append(self.speed_period)
+        speed_card.append(speed_header)
+        speed_metrics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        self.metric_wpm = self._metric(speed_metrics, "Period average WPM")
+        self.metric_lifetime_wpm = self._metric(speed_metrics, "All-time WPM")
+        self.metric_latest_wpm = self._metric(speed_metrics, "Latest session WPM")
+        speed_card.append(speed_metrics)
+        self.speed_chart = SpeedChart()
+        speed_card.append(self.speed_chart)
+        self.speed_summary = Gtk.Label(xalign=0, wrap=True)
+        self.speed_summary.add_css_class("muted")
+        speed_card.append(self.speed_summary)
+        speed_note = Gtk.Label(
+            label="Final words ÷ recording minutes, including pauses. Transcription and polish wait time is excluded. "
+                  "Sessions without words or recording time are excluded from speed averages.",
+            xalign=0, wrap=True,
+        )
+        speed_note.set_max_width_chars(72)
+        speed_note.add_css_class("muted")
+        speed_card.append(speed_note)
+        breakdown = Gtk.Expander(label="Daily breakdown")
+        self.speed_daily_label = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.speed_daily_label.add_css_class("muted")
+        breakdown.set_child(self.speed_daily_label)
+        speed_card.append(breakdown)
+        self.speed_period.connect("notify::selected", lambda *_: self.refresh_insights())
+        content.append(speed_card)
         cost_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         cost_card.add_css_class("card")
         cost_card.append(
@@ -426,6 +469,42 @@ class CursayWindow(Adw.ApplicationWindow):
         self.activity_label.add_css_class("muted")
         activity_card.append(self.activity_label)
         content.append(activity_card)
+        return scroll
+
+    def _memory(self) -> Gtk.ScrolledWindow:
+        scroll = self._page_container()
+        content = self._content_box()
+        scroll.set_child(content)
+        content.append(self._section_title("Memory & learning", "Your account workspace connects dictation with saved thoughts and learning."))
+        workspace = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        workspace.add_css_class("card")
+        workspace.append(self._section_title("Your learning workspace", "Saved thoughts, Ask Cursay, daily and weekly reviews, projects, and approved vocabulary live in your account workspace."))
+        workspace.append(Gtk.LinkButton(uri=f"{self.app.config['cloud_base_url']}/app", label="Open learning workspace"))
+        note = Gtk.Label(label="The workspace shows which account features are available. This app captures and syncs future dictations when you opt in. Local WPM and history work without an account.", wrap=True, xalign=0)
+        note.set_max_width_chars(72)
+        note.add_css_class("muted")
+        workspace.append(note)
+        self.memory_account_status = Gtk.Label(label="Link your account in Settings to use Memory sync.", wrap=True, xalign=0)
+        workspace.append(self.memory_account_status)
+        content.append(workspace)
+        memory = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        memory.add_css_class("card")
+        memory.append(self._section_title("Cursay Memory", "Separate account consent is required in the workspace. Only future captures sync; historical dictations stay local."))
+        for label, key in [("Sync future dictations", "memory_sync"), ("Private capture (no history or Memory)", "private_capture")]:
+            switch = Gtk.CheckButton(label=label, active=bool(self.app.config[key]))
+            switch.connect("toggled", lambda item, name=key: self.app.update_setting(name, item.get_active()))
+            memory.append(switch)
+        exclusions = Gtk.Entry(text=str(self.app.config["excluded_memory_apps"]), placeholder_text="Excluded app identities, comma separated")
+        exclusions.connect("notify::text", lambda entry, _: self.app.update_setting("excluded_memory_apps", entry.get_text()))
+        memory.append(exclusions)
+        memory.append(Gtk.Label(label="App exclusions fail closed when active-app identity is unavailable (including GNOME Wayland). Private capture never keeps audio.", wrap=True, xalign=0))
+        self.memory_status = Gtk.Label(label="Memory sync off on this device", wrap=True, xalign=0)
+        memory.append(self.memory_status)
+        memory.append(Gtk.LinkButton(uri=f"{self.app.config['cloud_base_url']}/app", label="Open Memory workspace"))
+        sync = Gtk.Button(label="Sync now")
+        sync.connect("clicked", lambda *_: self.app.sync_memory())
+        memory.append(sync)
+        content.append(memory)
         return scroll
 
     @staticmethod
@@ -609,24 +688,9 @@ class CursayWindow(Adw.ApplicationWindow):
         cloud_actions.append(self.cloud_sign_out_button)
         cloud.append(cloud_actions)
         content.append(cloud)
-        memory = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        memory.add_css_class("card")
-        memory.append(self._section_title("Cursay Memory", "Separate account consent is required in the workspace. Only future captures sync; historical dictations stay local."))
-        for label, key in [("Sync future dictations", "memory_sync"), ("Private capture (no history or Memory)", "private_capture")]:
-            switch = Gtk.CheckButton(label=label, active=bool(self.app.config[key]))
-            switch.connect("toggled", lambda item, name=key: self.app.update_setting(name, item.get_active()))
-            memory.append(switch)
-        exclusions = Gtk.Entry(text=str(self.app.config["excluded_memory_apps"]), placeholder_text="Excluded app identities, comma separated")
-        exclusions.connect("notify::text", lambda entry, _: self.app.update_setting("excluded_memory_apps", entry.get_text()))
-        memory.append(exclusions)
-        memory.append(Gtk.Label(label="App exclusions fail closed when active-app identity is unavailable (including GNOME Wayland). Private capture never keeps audio.", wrap=True, xalign=0))
-        self.memory_status = Gtk.Label(label="Memory sync off on this device", wrap=True, xalign=0)
-        memory.append(self.memory_status)
-        memory.append(Gtk.LinkButton(uri=f"{self.app.config['cloud_base_url']}/app", label="Open Memory workspace"))
-        sync = Gtk.Button(label="Sync now")
-        sync.connect("clicked", lambda *_: self.app.sync_memory())
-        memory.append(sync)
-        content.append(memory)
+        memory_link = Gtk.Button(label="Memory settings and learning workspace")
+        memory_link.connect("clicked", lambda *_: self.stack.set_visible_child_name("memory"))
+        content.append(memory_link)
 
         updates = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         updates.add_css_class("card")
@@ -698,6 +762,7 @@ class CursayWindow(Adw.ApplicationWindow):
 
     def set_cloud_account(self, message: str, usage: str = "", linked: bool = False, upgrade_required: bool = False) -> None:
         self.cloud_status.set_label(message)
+        self.memory_account_status.set_label(message)
         self.cloud_usage.set_label(usage)
         self.cloud_link_button.set_visible(not linked)
         self.cloud_sign_out_button.set_visible(linked)
@@ -822,8 +887,10 @@ class CursayWindow(Adw.ApplicationWindow):
                 stamp = datetime.fromisoformat(item["created_at"]).astimezone().strftime("%b %-d, %-I:%M %p")
             except (ValueError, TypeError):
                 stamp = item["created_at"]
+            wpm = words_per_minute(item["word_count"], item["duration_seconds"])
+            speed = f"{wpm:.1f} WPM" if wpm is not None else "Speed unavailable"
             meta = Gtk.Label(
-                label=f"{stamp}  •  {item['mode'].title()}  •  {item['word_count']} words",
+                label=f"{stamp}  •  {item['mode'].title()}  •  {item['word_count']} words  •  {speed}",
                 xalign=0,
             )
             meta.set_hexpand(True)
@@ -847,13 +914,33 @@ class CursayWindow(Adw.ApplicationWindow):
         self.app.store.delete(row_id)
         self.app.sync_memory()
         self.refresh_history()
+        self.refresh_insights()
         self.toast("Dictation removed")
 
     def refresh_insights(self) -> None:
-        stats = self.app.store.stats()
+        stats = self.app.store.stats(speed_days=(14, 30, 90)[self.speed_period.get_selected()])
         self.metric_dictations.set_label(f"{stats['dictations']:,}")
         self.metric_words.set_label(f"{stats['words']:,}")
         self.metric_minutes.set_label(f"{stats['seconds'] / 60:.1f}")
+        speed = stats["speed"]
+        for metric, key in (
+            (self.metric_wpm, "wpm"),
+            (self.metric_lifetime_wpm, "lifetime_wpm"),
+            (self.metric_latest_wpm, "latest_wpm"),
+        ):
+            metric.set_label(f"{speed[key]:.1f}" if speed[key] is not None else "—")
+        self.speed_chart.set_data(speed["daily"])
+        self.speed_summary.set_label(
+            f"{speed['words']:,} words in the last {speed['days']} days • "
+            f"{speed['timed_count']:,} sessions with speed data"
+            if speed["timed_count"] else "Dictate to start tracking your speed in this period."
+        )
+        daily_lines = []
+        for row in reversed(speed["daily"]):
+            if row["count"]:
+                rate = f"{row['wpm']:.1f} WPM" if row["wpm"] is not None else "Speed unavailable"
+                daily_lines.append(f"{row['day']}: {rate} • {row['words']:,} words • {row['count']} dictations")
+        self.speed_daily_label.set_label("\n".join(daily_lines) or "No dictations in this period.")
         cost = stats["cost"]
         if cost["complete"]:
             cost_value = format_usd(cost["usd"])
@@ -1110,7 +1197,7 @@ class CursayApplication(Adw.Application):
                     final_text=final,
                     mode=mode,
                     language=str(result.get("language") or self.config["language"]),
-                    duration_seconds=float(result.get("duration") or duration),
+                    duration_seconds=duration,
                     provider=str(result.get("provider") or "unknown"),
                     model=str(result.get("model") or (
                         self.config["local_stt_model"] if configured_provider == "local" else self.config["stt_model"]
@@ -1155,6 +1242,7 @@ class CursayApplication(Adw.Application):
             )
             self.window.set_status(status)
             self.window.refresh_history()
+            self.window.refresh_insights()
             if polish_warning:
                 self.window.toast(polish_warning)
         if bool(self.config["auto_paste"]):

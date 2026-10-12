@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import CursayCore
 import SwiftUI
 
@@ -6,6 +7,7 @@ private enum AppSection: String, CaseIterable, Identifiable {
     case dictate
     case history
     case insights
+    case memory
     case settings
 
     var id: String { rawValue }
@@ -17,6 +19,7 @@ private enum AppSection: String, CaseIterable, Identifiable {
         case .dictate: return "waveform"
         case .history: return "clock.arrow.circlepath"
         case .insights: return "chart.bar.xaxis"
+        case .memory: return "brain.head.profile"
         case .settings: return "gearshape"
         }
     }
@@ -44,6 +47,14 @@ struct ContentView: View {
                     Text("Private dictation for your Mac")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development")")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    if let revision = Bundle.main.object(forInfoDictionaryKey: "CursaySourceRevision") as? String {
+                        Text("Build \(revision.prefix(7))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
@@ -56,6 +67,8 @@ struct ContentView: View {
                 HistoryView()
             case .insights:
                 InsightsView()
+            case .memory:
+                MemoryView(settings: model.settings)
             case .settings:
                 SettingsView(settings: model.settings)
             }
@@ -272,6 +285,8 @@ private struct HistoryView: View {
                             Text(item.mode.displayName)
                             Text("•")
                             Text("\(item.wordCount) words")
+                            Text("•")
+                            Text(item.wordsPerMinute.map { String(format: "%.1f WPM", $0) } ?? "Speed unavailable")
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -300,6 +315,7 @@ private struct HistoryView: View {
 
 private struct InsightsView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var speedDays = 30
 
     var body: some View {
         ScrollView {
@@ -310,6 +326,8 @@ private struct InsightsView: View {
                     metric("Minutes", value: String(format: "%.1f", model.stats.seconds / 60), icon: "clock")
                     metric("Est. cost", value: model.stats.cost.formattedTotal, icon: "dollarsign.circle")
                 }
+
+                speedCard
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Transcription cost")
@@ -381,6 +399,122 @@ private struct InsightsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cursayCard()
+    }
+
+    private func speedLabel(_ value: Double?) -> String {
+        value.map { String(format: "%.1f", $0) } ?? "—"
+    }
+
+    private var speedCard: some View {
+        let summary = DictationSpeed.summarize(model.history, days: speedDays)
+        let maximum = max(50, ceil((summary.daily.compactMap(\.wpm).max() ?? 0) / 50) * 50)
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Dictation speed").font(.title3.weight(.semibold))
+                Spacer()
+                Picker("Time period", selection: $speedDays) {
+                    Text("Last 14 days").tag(14)
+                    Text("Last 30 days").tag(30)
+                    Text("Last 90 days").tag(90)
+                }
+                .labelsHidden()
+                .frame(width: 160)
+            }
+            HStack(spacing: 14) {
+                metric("Period average WPM", value: speedLabel(summary.averageWPM), icon: "speedometer")
+                metric("All-time WPM", value: speedLabel(summary.lifetimeWPM), icon: "chart.line.uptrend.xyaxis")
+                metric("Latest session WPM", value: speedLabel(summary.latestWPM), icon: "waveform")
+            }
+            Chart(summary.daily) { day in
+                if let wpm = day.wpm {
+                    LineMark(
+                        x: .value("Day", day.day), y: .value("WPM", wpm),
+                        series: .value("Run", day.segment)
+                    )
+                    .foregroundStyle(.mint)
+                    PointMark(x: .value("Day", day.day), y: .value("WPM", wpm))
+                        .foregroundStyle(.mint)
+                        .accessibilityLabel(day.day.formatted(date: .abbreviated, time: .omitted))
+                        .accessibilityValue(String(format: "%.1f words per minute", wpm))
+                }
+            }
+            .chartXScale(domain: summary.daily.first!.day...summary.daily.last!.day)
+            .chartYScale(domain: 0...maximum)
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 3)) {
+                    AxisGridLine()
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
+            .frame(height: 190)
+            .overlay {
+                if summary.averageWPM == nil {
+                    Text("No timed dictations in this period.").foregroundStyle(.secondary)
+                }
+            }
+            Text("\(summary.words.formatted()) words in the last \(speedDays) days · \(summary.timedDictations) sessions with speed data")
+                .foregroundStyle(.secondary)
+            Text("Final words ÷ recording minutes, including pauses. Transcription and polish wait time is excluded. Sessions without words or recording time are excluded from speed averages.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            DisclosureGroup("Daily breakdown") {
+                ForEach(summary.daily.reversed().filter { $0.dictations > 0 }) { day in
+                    HStack {
+                        Text(day.day, style: .date)
+                        Spacer()
+                        Text("\(day.words) words · \(day.dictations) dictations")
+                        Text(day.wpm.map { String(format: "%.1f WPM", $0) } ?? "Speed unavailable")
+                    }
+                    .font(.caption)
+                    .padding(.vertical, 3)
+                }
+            }
+        }
+        .cursayCard()
+    }
+}
+
+private struct MemoryView: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Your learning workspace", systemImage: "brain.head.profile")
+                        .font(.title2.weight(.semibold))
+                    Text("Saved thoughts, Ask Cursay, daily and weekly reviews, projects, and approved vocabulary live in your account workspace. This Mac captures and syncs future dictations when you opt in.")
+                    Link("Open learning workspace", destination: URL(string: "https://cursay.com/app")!)
+                        .buttonStyle(.borderedProminent)
+                    Text("The workspace shows which account features are available. Local WPM and history work without an account.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .cursayCard()
+                VStack(alignment: .leading, spacing: 12) {
+                    LabeledContent("Account", value: model.cloudStatus)
+                    LabeledContent("Memory sync", value: model.memoryStatus)
+                    Toggle("Sync future dictations", isOn: $settings.memorySync)
+                        .onChange(of: settings.memorySync) { enabled in
+                            if enabled { Task { await model.syncMemory() } }
+                        }
+                    HStack {
+                        if !model.cloudLinked {
+                            Button("Link this Mac") { model.linkCloudDevice() }
+                        }
+                        Button("Sync now") { Task { await model.syncMemory() } }
+                    }
+                    Text("Requires a linked account and separate Memory consent in the workspace. Existing history is not imported. Private capture and excluded apps stay private. Manage those options in Settings.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .cursayCard()
+            }
+            .padding(30)
+            .frame(maxWidth: 920)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .navigationTitle("Cursay")
+        .navigationSubtitle("Memory")
     }
 }
 
