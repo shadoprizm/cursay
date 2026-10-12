@@ -130,6 +130,8 @@ public actor MemorySync {
                 }
             }
             return "Memory synced · \(state.vocabulary.count) approved words"
+        } catch let CloudClientError.service(_, code, _) where code == "memory_not_available" {
+            return "Account Memory is unavailable on the server. Local dictation is still available."
         } catch { return "Memory sync pending. Local dictation is available." }
     }
 }
