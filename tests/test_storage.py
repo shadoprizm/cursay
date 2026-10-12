@@ -60,10 +60,14 @@ class StorageTests(unittest.TestCase):
             stats = store.stats()
             self.assertEqual(stats["dictations"], 1)
             self.assertEqual(stats["words"], 2)
+            self.assertEqual(stats["speed"]["wpm"], 48)
+            self.assertEqual(stats["speed"]["latest_wpm"], 48)
             self.assertEqual(stats["fillers"], [("um", 1)])
             self.assertFalse(stats["cost"]["complete"])
             store.delete(row_id)
             self.assertEqual(store.search(), [])
+            self.assertIsNone(store.stats()["speed"]["wpm"])
+            self.assertIsNone(store.stats()["speed"]["lifetime_wpm"])
 
     def test_xai_cost_is_estimated_from_audio_duration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

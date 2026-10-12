@@ -2,6 +2,19 @@
 
 All notable user-facing changes to Cursay are documented here.
 
+## Unreleased
+
+### Added
+
+- Added consistent words-per-minute insights to Mac, Ubuntu, and Windows, including weighted period and all-time averages, latest-session speed, 14/30/90-day daily trends, and session speeds in History.
+- Added visible Memory navigation in Mac and Ubuntu linking to the account learning workspace while preserving separate consent, private capture, and future-only sync.
+- Show the source build revision in owner Mac and Ubuntu installations so installations can be compared with GitHub.
+
+### Fixed
+
+- Record microphone capture duration for speed calculations instead of provider-supplied duration.
+- Set the default Mac app bundle version to 1.3.0 to match current native source.
+
 ## 1.3.0 - 2026-10-12
 
 ### Fixed

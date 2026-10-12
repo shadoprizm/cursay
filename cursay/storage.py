@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config import DATABASE_FILE, ensure_directories
+from .insights import summarize_speed
 from .pricing import summarize_costs
 
 
@@ -121,7 +122,7 @@ class HistoryStore:
         with self.connect() as connection:
             connection.execute("DELETE FROM dictations WHERE id = ?", (row_id,))
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self, speed_days: int = 30) -> dict[str, Any]:
         with self.connect() as connection:
             aggregate = connection.execute(
                 """
@@ -140,6 +141,9 @@ class HistoryStore:
             ).fetchall()
             filler_rows = connection.execute(
                 "SELECT fillers_removed_json FROM dictations ORDER BY created_at DESC LIMIT 500"
+            ).fetchall()
+            speed_rows = connection.execute(
+                "SELECT created_at, word_count, duration_seconds FROM dictations"
             ).fetchall()
             cost_rows = connection.execute(
                 """
@@ -172,6 +176,7 @@ class HistoryStore:
             "dictations": int(aggregate["dictations"]),
             "words": int(aggregate["words"]),
             "seconds": float(aggregate["seconds"]),
+            "speed": summarize_speed((dict(row) for row in speed_rows), speed_days),
             "recent": [dict(row) for row in recent],
             "fillers": sorted(filler_counts.items(), key=lambda item: (-item[1], item[0]))[:10],
             "cost": summarize_costs([dict(row) for row in cost_rows]),

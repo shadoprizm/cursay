@@ -36,6 +36,7 @@ public sealed class MainForm : Form
     private bool _busy;
     private bool _exitRequested;
     private Button? _recordButton;
+    private int _speedDays = 30;
 
     public MainForm()
     {
@@ -265,7 +266,8 @@ public sealed class MainForm : Form
         text.Size = new Size(width - 36, 54);
         text.AutoEllipsis = true;
         card.Controls.Add(text);
-        var detail = Label($"{item.CreatedAt.LocalDateTime:g}  •  {item.Mode}  •  {item.WordCount} words",
+        var speed = item.WordsPerMinute is double wpm ? $"{wpm:0.0} WPM" : "Speed unavailable";
+        var detail = Label($"{item.CreatedAt.LocalDateTime:g}  •  {item.Mode}  •  {item.WordCount} words  •  {speed}",
             9, FontStyle.Regular, Muted);
         detail.Location = new Point(18, 76);
         detail.AutoSize = true;
@@ -298,8 +300,47 @@ public sealed class MainForm : Form
         page.Controls.Add(MetricCard("Dictations", stats.Dictations.ToString(), 35));
         page.Controls.Add(MetricCard("Words", stats.Words.ToString(), 275));
         page.Controls.Add(MetricCard("Minutes", (stats.Seconds / 60).ToString("0.0"), 515));
+        var speed = DictationSpeed.Summarize(_history, _speedDays);
+        var speedTitle = Label("Dictation speed (WPM)", 13, FontStyle.Bold, Ink);
+        speedTitle.Location = new Point(35, 286);
+        speedTitle.AutoSize = true;
+        page.Controls.Add(speedTitle);
+        var period = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(590, 282), Width = 145 };
+        period.Items.AddRange(["Last 14 days", "Last 30 days", "Last 90 days"]);
+        period.SelectedIndex = Array.IndexOf(new[] { 14, 30, 90 }, _speedDays);
+        period.SelectedIndexChanged += (_, _) => { _speedDays = new[] { 14, 30, 90 }[period.SelectedIndex]; ShowInsights(); };
+        page.Controls.Add(period);
+        var speedMetrics = new[] {
+            ("Period average WPM", speed.AverageWpm), ("All-time WPM", speed.LifetimeWpm), ("Latest session WPM", speed.LatestWpm)
+        };
+        for (var index = 0; index < speedMetrics.Length; index++)
+        {
+            var card = MetricCard(speedMetrics[index].Item1, speedMetrics[index].Item2?.ToString("0.0") ?? "—", 35 + index * 240);
+            card.Top = 322;
+            page.Controls.Add(card);
+        }
+        var chart = Card(700, 220);
+        chart.Location = new Point(35, 470);
+        chart.AccessibleName = "Daily words per minute. See the daily breakdown for values.";
+        chart.Paint += (_, paint) => DrawSpeedChart(paint.Graphics, chart.ClientSize, speed);
+        page.Controls.Add(chart);
+        var speedNote = Label($"{speed.Words:N0} words in the last {_speedDays} days · {speed.TimedDictations} sessions with speed data\nFinal words ÷ recording minutes, including pauses. Transcription and polish wait time is excluded.",
+            10, FontStyle.Regular, Muted);
+        speedNote.Location = new Point(35, 710);
+        speedNote.Size = new Size(700, 55);
+        page.Controls.Add(speedNote);
+        var breakdown = new ListBox { Location = new Point(35, 780), Size = new Size(700, 110), AccessibleName = "Daily speed breakdown" };
+        foreach (var day in speed.Daily.Reverse().Where(day => day.Dictations > 0))
+            breakdown.Items.Add($"{day.Day:yyyy-MM-dd}: {day.Wpm?.ToString("0.0") ?? "—"} WPM · {day.Words:N0} words · {day.Dictations} dictations");
+        if (breakdown.Items.Count == 0) breakdown.Items.Add("No timed dictations in this period.");
+        page.Controls.Add(breakdown);
+        var workspace = AccentButton("Open learning workspace");
+        workspace.Location = new Point(35, 915);
+        workspace.Size = new Size(250, 38);
+        workspace.Click += (_, _) => Process.Start(new ProcessStartInfo("https://cursay.com/app") { UseShellExecute = true });
+        page.Controls.Add(workspace);
         var filler = Card(700, 180);
-        filler.Location = new Point(35, 300);
+        filler.Location = new Point(35, 975);
         var title = Label("Filler words removed", 13, FontStyle.Bold, Ink);
         title.Location = new Point(22, 20);
         title.AutoSize = true;
@@ -313,6 +354,44 @@ public sealed class MainForm : Form
         filler.Controls.Add(values);
         page.Controls.Add(filler);
         _content.Controls.Add(page);
+    }
+
+    private static void DrawSpeedChart(Graphics graphics, Size size, DictationSpeedSummary speed)
+    {
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        const int left = 48, top = 16, bottom = 32;
+        var width = size.Width - left - 18;
+        var height = size.Height - top - bottom;
+        var maximum = Math.Max(50, Math.Ceiling(speed.Daily.Max(day => day.Wpm ?? 0) / 50) * 50);
+        using var grid = new Pen(Color.FromArgb(35, Muted));
+        using var ink = new SolidBrush(Muted);
+        using var accent = new SolidBrush(Color.FromArgb(8, 117, 93));
+        using var line = new Pen(accent, 2);
+        using var font = new Font("Segoe UI", 9);
+        foreach (var value in new[] { 0, maximum / 2, maximum })
+        {
+            var y = (float)(top + height * (1 - value / maximum));
+            graphics.DrawLine(grid, left, y, size.Width - 18, y);
+            graphics.DrawString(value.ToString("0"), font, ink, 4, y - 8);
+        }
+        PointF? previous = null;
+        for (var index = 0; index < speed.Daily.Count; index++)
+        {
+            var day = speed.Daily[index];
+            if (day.Wpm is not double wpm) { previous = null; continue; }
+            var point = new PointF(left + width * index / (float)(speed.Daily.Count - 1), (float)(top + height * (1 - wpm / maximum)));
+            if (previous is PointF from) graphics.DrawLine(line, from, point);
+            graphics.FillEllipse(accent, point.X - 3, point.Y - 3, 6, 6);
+            previous = point;
+        }
+        foreach (var index in new[] { 0, (speed.Daily.Count - 1) / 2, speed.Daily.Count - 1 })
+        {
+            var label = speed.Daily[index].Day.ToString("MMM d");
+            var x = left + width * index / (float)(speed.Daily.Count - 1) - graphics.MeasureString(label, font).Width / 2;
+            graphics.DrawString(label, font, ink, x, size.Height - 24);
+        }
+        if (speed.AverageWpm is null)
+            graphics.DrawString("No timed dictations in this period.", font, ink, left + 130, top + height / 2);
     }
 
     private Panel MetricCard(string title, string value, int x)
@@ -522,7 +601,7 @@ public sealed class MainForm : Form
             }
 
             var entry = Dictation.Create(result.Text.Trim(), cleaned.Text, _settings.Mode,
-                result.Language ?? _settings.Language, result.Duration ?? recording.Duration,
+                result.Language ?? _settings.Language, recording.Duration,
                 result.Provider ?? "speech service", result.Model ?? _settings.Model,
                 cleaned.Metadata.FillersRemoved, preservedPath);
             if (!privateCapture) { _history.Insert(0, entry); _historyStore.Save(_history); }

@@ -4,8 +4,9 @@ Releases are built from a clean `main` checkout after CI passes.
 
 ## Prepare
 
-1. Update the version in `pyproject.toml`, `cursay/__init__.py`, `backend/server.py`, and
-   `tests/test_version.py`.
+1. Update the version in `pyproject.toml`, `cursay/__init__.py`, `backend/server.py`,
+   `macos/Resources/Info.plist`, `windows/src/Cursay.Windows/Cursay.Windows.csproj`,
+   `windows/installer/Cursay.iss`, and `tests/test_version.py`. The version test enforces native parity.
 2. Add the release notes to `CHANGELOG.md`.
 3. If backend dependencies changed, regenerate `backend/requirements.lock` using the command in
    `CONTRIBUTING.md`.
@@ -23,7 +24,7 @@ Releases are built from a clean `main` checkout after CI passes.
 
    Changes under `macos/` must also pass the macOS workflow, which runs the Swift tests and assembles the app bundle on a GitHub-hosted Mac.
 
-   Changes under `website/` must pass `npm test`, `npm run typecheck`, `npm run build`, `npm run models:validate`, and a non-sensitive `npm run models:smoke -- <fixture.wav>`. Apply all Neon migrations to staging before deploying a protected Vercel preview.
+   Cloud changes live in the separate private repository and must pass `npm test`, `npm run typecheck`, `npm run build`, `npm run models:validate`, and a non-sensitive `npm run models:smoke -- <fixture.wav>`. Follow that repository's current staging and recovery gates before any promotion.
 
 5. Test a fresh install and an upgrade on supported Ubuntu releases. Exercise local transcription,
    Smart Polish success and fallback, automatic paste, and `./install.sh --skip-backend`.

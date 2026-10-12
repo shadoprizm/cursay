@@ -1,6 +1,6 @@
 #define MyAppName "Cursay"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.1"
+  #define MyAppVersion "1.3.0"
 #endif
 #define MyAppPublisher "shadoprizm"
 #define MyAppURL "https://cursay.com/"

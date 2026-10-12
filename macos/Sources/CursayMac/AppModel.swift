@@ -508,7 +508,7 @@ final class AppModel: ObservableObject {
                 finalText: final,
                 mode: settings.mode,
                 language: result.language ?? settings.language,
-                durationSeconds: result.duration ?? measuredDuration,
+                durationSeconds: measuredDuration,
                 provider: result.provider ?? "speech service",
                 model: result.model ?? (settings.provider == .local ? "whisper-base.en" : settings.model),
                 fillersRemoved: metadata.fillersRemoved,

@@ -8,7 +8,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>Cursay</AssemblyName>
     <RootNamespace>Cursay.Windows</RootNamespace>
-    <Version>1.2.1</Version>
+    <Version>1.3.0</Version>
     <Authors>shadoprizm</Authors>
     <Description>Private, local-first, system-wide dictation for Windows.</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
