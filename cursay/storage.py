@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config import DATABASE_FILE, ensure_directories
+from .corrections import validate_replacement
 from .insights import summarize_speed
 from .pricing import summarize_costs
 
@@ -31,6 +32,13 @@ CREATE TABLE IF NOT EXISTS dictations (
 );
 CREATE INDEX IF NOT EXISTS idx_dictations_created_at ON dictations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dictations_mode ON dictations(mode);
+CREATE TABLE IF NOT EXISTS replacements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    source_key TEXT NOT NULL UNIQUE,
+    target TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
 """
 
 
@@ -44,6 +52,10 @@ class HistoryStore:
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(dictations)")}
             if "cost_usd" not in columns:
                 connection.execute("ALTER TABLE dictations ADD COLUMN cost_usd REAL")
+            if "original_final_text" not in columns:
+                connection.execute("ALTER TABLE dictations ADD COLUMN original_final_text TEXT")
+            if "corrected_at" not in columns:
+                connection.execute("ALTER TABLE dictations ADD COLUMN corrected_at TEXT")
             if "memory_id" not in columns:
                 connection.execute("ALTER TABLE dictations ADD COLUMN memory_id TEXT")
                 for row in connection.execute("SELECT id FROM dictations WHERE memory_id IS NULL").fetchall():
@@ -122,6 +134,49 @@ class HistoryStore:
         with self.connect() as connection:
             connection.execute("DELETE FROM dictations WHERE id = ?", (row_id,))
 
+    @staticmethod
+    def _save_replacement(connection: sqlite3.Connection, source: str, target: str) -> None:
+        connection.execute(
+            """INSERT INTO replacements (source, source_key, target) VALUES (?, ?, ?)
+               ON CONFLICT(source_key) DO UPDATE SET source = excluded.source,
+                   target = excluded.target, enabled = 1""",
+            (source, source.casefold(), target),
+        )
+
+    def save_correction(self, row_id: int, text: str, rules: list[tuple[str, str]]) -> None:
+        text = text.strip()
+        if not text:
+            raise ValueError("The corrected dictation cannot be empty.")
+        validated = [validate_replacement(source, target) for source, target in rules]
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """UPDATE dictations SET original_final_text = COALESCE(original_final_text, final_text),
+                   final_text = ?, word_count = ?, corrected_at = ? WHERE id = ?""",
+                (text, len(text.split()), datetime.now(timezone.utc).isoformat(), row_id),
+            )
+            if not cursor.rowcount:
+                raise ValueError("This dictation was deleted. No correction was saved.")
+            for source, target in validated:
+                self._save_replacement(connection, source, target)
+
+    def replacements(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM replacements ORDER BY source_key").fetchall()
+        return [dict(row) for row in rows]
+
+    def save_replacement(self, source: str, target: str) -> None:
+        source, target = validate_replacement(source, target)
+        with self.connect() as connection:
+            self._save_replacement(connection, source, target)
+
+    def set_replacement_enabled(self, row_id: int, enabled: bool) -> None:
+        with self.connect() as connection:
+            connection.execute("UPDATE replacements SET enabled = ? WHERE id = ?", (int(enabled), row_id))
+
+    def delete_replacement(self, row_id: int) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM replacements WHERE id = ?", (row_id,))
+
     def stats(self, speed_days: int = 30) -> dict[str, Any]:
         with self.connect() as connection:
             aggregate = connection.execute(
@@ -143,7 +198,7 @@ class HistoryStore:
                 "SELECT fillers_removed_json FROM dictations ORDER BY created_at DESC LIMIT 500"
             ).fetchall()
             speed_rows = connection.execute(
-                "SELECT created_at, word_count, duration_seconds FROM dictations"
+                "SELECT created_at, word_count, duration_seconds, original_final_text FROM dictations"
             ).fetchall()
             cost_rows = connection.execute(
                 """

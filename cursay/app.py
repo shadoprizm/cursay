@@ -16,15 +16,18 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from . import __source_revision__, __version__
+from . import __build_info__, __version__
 from .audio import AudioError, PipeWireRecorder
+from .build_info import build_label
 from .cleanup import PolishError, clean_transcript, polish_transcript, should_polish
+from .correction_window import CorrectionWindow
+from .corrections import apply_replacements
 from .memory import MemorySync, is_private_capture
 from .cloud import CloudClient, CloudError, SecureStorageUnavailable, cloud_access_error
 from .config import (
     APPEARANCE_OPTIONS, APP_ID, APP_NAME, DEFAULT_CONFIG, PASTE_SHORTCUT_OPTIONS, PROJECT_DIR, load_config, save_config,
 )
-from .insights import words_per_minute
+from .insights import dictation_word_count, words_per_minute
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
 from .pricing import format_usd, reported_cost_usd
@@ -205,8 +208,14 @@ class CursayWindow(Adw.ApplicationWindow):
         sidebar = Gtk.StackSidebar(stack=self.stack)
         sidebar.set_vexpand(True)
         sidebar_box.append(sidebar)
-        build = f"\nBuild {__source_revision__[:7]}" if __source_revision__ else ""
+        description = build_label(__build_info__)
+        build = f"\n{description}" if description else ""
         version = Gtk.Label(label=f"Private • Local\nVersion {__version__}{build}")
+        if description:
+            version.set_tooltip_text(
+                f"Revision: {__build_info__.get('source_revision') or 'unavailable'}\n"
+                f"Application source SHA-256: {__build_info__.get('source_digest') or 'unavailable'}"
+            )
         version.add_css_class("version-label")
         sidebar_box.append(version)
         shell.append(sidebar_box)
@@ -214,11 +223,13 @@ class CursayWindow(Adw.ApplicationWindow):
 
         self.dashboard_page = self._dashboard()
         self.history_page = self._history()
+        self.corrections_page = self._corrections()
         self.insights_page = self._insights()
         self.memory_page = self._memory()
         self.settings_page = self._settings()
         self.stack.add_titled(self.dashboard_page, "dashboard", "Dictate")
         self.stack.add_titled(self.history_page, "history", "History")
+        self.stack.add_titled(self.corrections_page, "corrections", "Corrections")
         self.stack.add_titled(self.insights_page, "insights", "Insights")
         self.stack.add_titled(self.memory_page, "memory", "Memory")
         self.stack.add_titled(self.settings_page, "settings", "Settings")
@@ -345,6 +356,9 @@ class CursayWindow(Adw.ApplicationWindow):
         copy_button.add_css_class("copy-button")
         copy_button.connect("clicked", lambda *_: self.app.copy_latest())
         result_header.append(copy_button)
+        correct_button = Gtk.Button(label="Correct")
+        correct_button.connect("clicked", lambda *_: self._correct_latest())
+        result_header.append(correct_button)
         result_card.append(result_header)
         self.result_view = Gtk.TextView()
         self.result_view.set_editable(False)
@@ -378,7 +392,7 @@ class CursayWindow(Adw.ApplicationWindow):
         scroll = self._page_container()
         content = self._content_box()
         scroll.set_child(content)
-        content.append(self._section_title("Dictation history", "Search, copy, or remove your locally stored transcriptions."))
+        content.append(self._section_title("Dictation history", "Search, correct, copy, or remove your locally stored transcriptions."))
         self.history_search = Gtk.SearchEntry(placeholder_text="Search your dictations")
         self.history_search.connect("search-changed", lambda *_: self.refresh_history())
         content.append(self.history_search)
@@ -388,6 +402,104 @@ class CursayWindow(Adw.ApplicationWindow):
         self.history_list.add_css_class("card")
         content.append(self.history_list)
         return scroll
+
+    def _corrections(self) -> Gtk.ScrolledWindow:
+        scroll = self._page_container()
+        content = self._content_box()
+        scroll.set_child(content)
+        content.append(self._section_title(
+            "Remembered corrections",
+            "Local word and phrase replacements apply after cleanup and Smart polish, except in Raw mode. "
+            "Edits in other apps are not detected: use Correct on a dictation, or add a rule here. "
+            "These rules stay on this device and are separate from Memory sync.",
+        ))
+        form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        form.add_css_class("card")
+        self.correction_source = Gtk.Entry(placeholder_text="Mistaken word or phrase, e.g. curse say")
+        self.correction_target = Gtk.Entry(placeholder_text="Replace with, e.g. Cursay")
+        form.append(self.correction_source)
+        form.append(self.correction_target)
+        add = Gtk.Button(label="Save replacement")
+        add.connect("clicked", lambda *_: self._add_replacement())
+        form.append(add)
+        self.correction_error = Gtk.Label(xalign=0)
+        self.correction_error.set_wrap(True)
+        form.append(self.correction_error)
+        content.append(form)
+        self.correction_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        content.append(self.correction_list)
+        self.refresh_corrections()
+        return scroll
+
+    def refresh_corrections(self) -> None:
+        while child := self.correction_list.get_first_child():
+            self.correction_list.remove(child)
+        rules = self.app.store.replacements()
+        if not rules:
+            self.correction_list.append(Gtk.Label(label="No remembered replacements yet.", xalign=0))
+        for rule in rules:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            row.add_css_class("card")
+            enabled = Gtk.CheckButton()
+            enabled.set_active(bool(rule["enabled"]))
+            enabled.set_tooltip_text("Apply this replacement to future dictations")
+            enabled.connect(
+                "toggled", lambda button, row_id=rule["id"]:
+                self.app.store.set_replacement_enabled(row_id, button.get_active()),
+            )
+            row.append(enabled)
+            label = Gtk.Label(label=f"{rule['source']} → {rule['target']}", xalign=0)
+            label.set_wrap(True)
+            label.set_hexpand(True)
+            label.set_max_width_chars(55)
+            row.append(label)
+            delete = Gtk.Button(label="Delete")
+            delete.connect("clicked", lambda _button, row_id=rule["id"]: self._delete_replacement(row_id))
+            row.append(delete)
+            self.correction_list.append(row)
+
+    def _add_replacement(self) -> None:
+        try:
+            self.app.store.save_replacement(self.correction_source.get_text(), self.correction_target.get_text())
+        except ValueError as exc:
+            self.correction_error.set_label(str(exc))
+            return
+        self.correction_source.set_text("")
+        self.correction_target.set_text("")
+        self.correction_error.set_label("")
+        self.refresh_corrections()
+        self.toast("Replacement remembered")
+
+    def _delete_replacement(self, row_id: int) -> None:
+        self.app.store.delete_replacement(row_id)
+        self.refresh_corrections()
+
+    def _correct_latest(self) -> None:
+        if self.app.latest_row_id is None:
+            self.toast("Choose a saved dictation in History to correct")
+            return
+        self._correct_history(self.app.latest_row_id)
+
+    def _correct_history(self, row_id: int) -> None:
+        item = self.app.store.get(row_id)
+        if item is None:
+            self.toast("This dictation is no longer in History")
+            return
+        CorrectionWindow(self, item, self._save_correction).present()
+
+    def _save_correction(self, row_id: int, text: str, rules: list[tuple[str, str]]) -> None:
+        self.app.store.save_correction(row_id, text, rules)
+        if row_id == self.app.latest_row_id:
+            self.app.latest_text = text.strip()
+            self.set_result(self.app.latest_text)
+        # Saving must not trigger a delayed automatic paste into this dialog.
+        self.app.pending_auto_paste = False
+        self.app.pending_auto_paste_text = ""
+        self.app.copy_text(text.strip(), quiet=True)
+        self.refresh_history()
+        self.refresh_insights()
+        self.refresh_corrections()
+        self.toast(f"Correction saved and copied • {len(rules)} replacements remembered")
 
     def _insights(self) -> Gtk.ScrolledWindow:
         scroll = self._page_container()
@@ -455,7 +567,11 @@ class CursayWindow(Adw.ApplicationWindow):
         content.append(cost_card)
         filler_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         filler_card.add_css_class("card")
-        filler_card.append(self._section_title("Filler words removed", "Cursay tracks only words it actually removed."))
+        filler_card.append(self._section_title(
+            "Filler words removed",
+            "Basic cleanup removals in your latest 500 dictations; Smart polish edits are not counted. "
+            "Cleanup now removes only um, uh, and erm. Older entries may include other phrases.",
+        ))
         self.filler_label = Gtk.Label(label="No filler-word data yet.", xalign=0)
         self.filler_label.set_wrap(True)
         self.filler_label.add_css_class("muted")
@@ -596,7 +712,8 @@ class CursayWindow(Adw.ApplicationWindow):
         self.fillers_switch = self._switch_row(
             behavior,
             "Remove filler words",
-            "Removes clear fillers such as “um” and “uh” without rewriting meaning.",
+            "Basic cleanup removes “um”, “uh”, and “erm”; preserves “you know” and “I mean”. "
+            "Smart polish may independently remove fillers when enabled.",
             bool(self.app.config["remove_fillers"]),
             lambda value: self.app.update_setting("remove_fillers", value),
         )
@@ -827,6 +944,8 @@ class CursayWindow(Adw.ApplicationWindow):
         name = self.stack.get_visible_child_name()
         if name == "history":
             self.refresh_history()
+        elif name == "corrections":
+            self.refresh_corrections()
         elif name == "insights":
             self.refresh_insights()
 
@@ -887,7 +1006,7 @@ class CursayWindow(Adw.ApplicationWindow):
                 stamp = datetime.fromisoformat(item["created_at"]).astimezone().strftime("%b %-d, %-I:%M %p")
             except (ValueError, TypeError):
                 stamp = item["created_at"]
-            wpm = words_per_minute(item["word_count"], item["duration_seconds"])
+            wpm = words_per_minute(dictation_word_count(item), item["duration_seconds"])
             speed = f"{wpm:.1f} WPM" if wpm is not None else "Speed unavailable"
             meta = Gtk.Label(
                 label=f"{stamp}  •  {item['mode'].title()}  •  {item['word_count']} words  •  {speed}",
@@ -902,6 +1021,9 @@ class CursayWindow(Adw.ApplicationWindow):
             copy = Gtk.Button(icon_name="edit-copy-symbolic", tooltip_text="Copy")
             copy.connect("clicked", lambda _button, value=item["final_text"]: self.app.copy_text(value))
             row.append(copy)
+            correct = Gtk.Button(label="Correct")
+            correct.connect("clicked", lambda _button, row_id=item["id"]: self._correct_history(row_id))
+            row.append(correct)
             delete = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Delete")
             delete.connect("clicked", lambda _button, row_id=item["id"]: self._delete_history(row_id))
             row.append(delete)
@@ -1000,6 +1122,7 @@ class CursayApplication(Adw.Application):
         self.recorder = PipeWireRecorder()
         self.window: CursayWindow | None = None
         self.latest_text = ""
+        self.latest_row_id: int | None = None
         self.busy = False
         self.pending_auto_paste = False
         self.pending_auto_paste_text = ""
@@ -1080,6 +1203,8 @@ class CursayApplication(Adw.Application):
             self.shortcuts.configure()
 
     def _paste_pending(self) -> bool:
+        if not self.pending_auto_paste:
+            return False
         pasted = self.virtual_keyboard.paste(str(self.config["paste_shortcut"]))
         self.pending_auto_paste = False
         self.pending_auto_paste_text = ""
@@ -1189,6 +1314,8 @@ class CursayApplication(Adw.Application):
                     except PolishError as exc:
                         polish_warning = str(exc)
                         LOG.warning("%s", polish_warning)
+            if mode != "raw":
+                final = apply_replacements(final, self.store.replacements())
             recording_path = str(path) if bool(self.config["preserve_recordings"]) and not private_capture else None
             row_id = None
             if not private_capture:
@@ -1211,6 +1338,7 @@ class CursayApplication(Adw.Application):
                 final,
                 str(result.get("provider") or "speech service"),
                 polish_warning,
+                row_id,
             )
             # A secondary queue failure must never undo delivered dictation.
             if row_id is not None and sync_this_capture:
@@ -1228,10 +1356,13 @@ class CursayApplication(Adw.Application):
             if not bool(self.config["preserve_recordings"]) or private_capture:
                 path.unlink(missing_ok=True)
 
-    def _completed(self, text: str, provider: str, polish_warning: str | None = None) -> bool:
+    def _completed(
+        self, text: str, provider: str, polish_warning: str | None = None, row_id: int | None = None,
+    ) -> bool:
         LOG.info("Dictation completed provider=%s words=%s", provider, len(text.split()))
         self.busy = False
         self.latest_text = text
+        self.latest_row_id = row_id
         self.copy_text(text, quiet=True)
         if self.window:
             self.window.set_result(text)

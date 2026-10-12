@@ -59,18 +59,13 @@ cp -a "$source_dir/bin" "$stage_app/"
 cp -a "$source_dir/pyproject.toml" "$stage_app/"
 python3 - "$source_dir" "$stage_app/cursay/build-info.json" <<'PY'
 import json
-import subprocess
 import sys
 from pathlib import Path
 
-try:
-    revision = subprocess.check_output(
-        ["git", "-C", sys.argv[1], "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True
-    ).strip()
-except (OSError, subprocess.CalledProcessError):
-    revision = ""
-if revision:
-    Path(sys.argv[2]).write_text(json.dumps({"source_revision": revision}) + "\n")
+sys.path.insert(0, sys.argv[1])
+from cursay.build_info import capture_build_info
+
+Path(sys.argv[2]).write_text(json.dumps(capture_build_info(Path(sys.argv[1]))) + "\n")
 PY
 chmod 0755 "$stage_app/bin/cursay"
 

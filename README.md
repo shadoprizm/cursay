@@ -188,6 +188,33 @@ The style picker has two kinds of behavior:
 
 Smart polish is disabled by default. With Local Whisper or Custom, its privacy depends on the text endpoint you configure. With Cursay Cloud it uses the one-use polish grant from the immediately preceding cloud transcription. The Dictate screen shows whether it is active and reports a visible fallback when that service is unavailable.
 
+## Correcting dictations on Ubuntu
+
+Click **Correct** beside **Latest dictation** or a History entry. Edit the text, or paste in the
+corrected version from your email or another app. Click **Review replacements to remember** and select
+only recurring recognition mistakes (for example, `curse say` → `Cursay`). Nothing is remembered until
+you explicitly select a replacement and save. **Save correction and copy** updates the local history
+entry and clipboard; paste that result into your destination app yourself.
+
+The **Corrections** page lets you add or update a replacement, disable it, or delete it. Rules match
+whole words and phrases without regard to capitalization, use your replacement's exact spelling,
+and apply after basic cleanup and Smart polish. Raw mode bypasses them. Rules and corrected history
+stay on this Ubuntu device, separately from account Memory sync. Editing an external text box alone
+does not create a correction or a rule. This is explicit replacement behavior, not model retraining.
+History shows the corrected text's word count, while session, daily, period, and all-time WPM keep
+using the originally generated transcript. Typed additions or deletions never change voice speed.
+
+Ubuntu basic filler cleanup removes `um`, `uh`, and `erm`, including elongated variants. It preserves
+`you know`, `I mean`, `ah`, and `er` because these can carry meaning. The Insights filler counter totals
+the logged basic-cleanup removals in the latest 500 history entries; older entries may include phrases
+removed by earlier versions. Smart polish can independently remove fillers, and those edits are not
+included in this counter. Raw mode bypasses both cleanup and polish.
+
+Ubuntu installations built from source show the Git revision in the sidebar, a **local changes**
+indicator when the source checkout had unpublished edits, and a fingerprint of the installed application
+source. Hover over the build label for the full revision and fingerprint. Source archives without Git
+metadata are labeled **unversioned** and still receive a source fingerprint.
+
 ## Ubuntu diagnostics
 
 ```bash

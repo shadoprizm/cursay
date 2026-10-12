@@ -4,6 +4,7 @@ __pycache__/
 .coverage
 .pytest_cache/
 .ruff_cache/
+/cursay/build-info.json
 .venv/
 .build/
 vendor/
