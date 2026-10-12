@@ -1,5 +1,7 @@
 # Cursay Memory release candidate
 
+This is the historical October 10 candidate record. See [current release status](RELEASE_STATUS.md) for deployment and installation evidence.
+
 Prepared 2026-10-10. Implemented in isolated cloud and desktop worktrees on `codex/cursay-memory`. **Not deployed, migrated, installed, or publicly released.** Ordinary dictation and the existing production site remain the running service.
 
 ## What this candidate provides
