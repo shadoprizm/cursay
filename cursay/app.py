@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime
@@ -21,7 +22,7 @@ from .cleanup import PolishError, clean_transcript, polish_transcript, should_po
 from .memory import MemorySync, is_private_capture
 from .cloud import CloudClient, CloudError, SecureStorageUnavailable, cloud_access_error
 from .config import (
-    APPEARANCE_OPTIONS, APP_ID, APP_NAME, PASTE_SHORTCUT_OPTIONS, PROJECT_DIR, load_config, save_config,
+    APPEARANCE_OPTIONS, APP_ID, APP_NAME, DEFAULT_CONFIG, PASTE_SHORTCUT_OPTIONS, PROJECT_DIR, load_config, save_config,
 )
 from .keyboard import VirtualKeyboard
 from .portals import GlobalShortcutPortal
@@ -903,10 +904,12 @@ class CursayWindow(Adw.ApplicationWindow):
 
 class CursayApplication(Adw.Application):
     def __init__(self, test_mode: bool = False) -> None:
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        flags = Gio.ApplicationFlags.NON_UNIQUE if test_mode else Gio.ApplicationFlags.DEFAULT_FLAGS
+        super().__init__(application_id=APP_ID, flags=flags)
         self.test_mode = test_mode
-        self.config = load_config()
-        self.store = HistoryStore()
+        self._smoke_directory = tempfile.TemporaryDirectory(prefix="cursay-smoke-") if test_mode else None
+        self.config = dict(DEFAULT_CONFIG) if test_mode else load_config()
+        self.store = HistoryStore(Path(self._smoke_directory.name) / "history.db") if self._smoke_directory else HistoryStore()
         self.recorder = PipeWireRecorder()
         self.window: CursayWindow | None = None
         self.latest_text = ""
@@ -975,6 +978,8 @@ class CursayApplication(Adw.Application):
         self.recorder.cancel()
         if self.shortcuts is not None:
             self.shortcuts.close()
+        if self._smoke_directory is not None:
+            self._smoke_directory.cleanup()
         Adw.Application.do_shutdown(self)
 
     def _shortcut_status(self, message: str) -> None:
