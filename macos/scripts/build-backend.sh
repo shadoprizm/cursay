@@ -14,6 +14,12 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 PYTHON_BIN="${CURSAY_BACKEND_PYTHON:-}"
+# In CI, actions/setup-python exports pythonLocation. Use that pinned interpreter instead of the
+# runner's Homebrew python3, which can be newer than the locked wheels support (ctranslate2==4.8.2
+# ships cp39-cp314 wheels only). Local builds do not set pythonLocation and are unchanged.
+if [[ -z "$PYTHON_BIN" && -n "${pythonLocation:-}" && -x "${pythonLocation}/bin/python3" ]]; then
+    PYTHON_BIN="${pythonLocation}/bin/python3"
+fi
 if [[ -z "$PYTHON_BIN" ]]; then
     for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 "$(command -v python3 || true)"; do
         if [[ -x "$candidate" ]] && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
@@ -26,6 +32,7 @@ if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(sy
     echo "Python 3.10 or newer is required to build the macOS transcription helper."
     exit 1
 fi
+echo "Building the transcription helper with $("$PYTHON_BIN" --version 2>&1) at $PYTHON_BIN" >&2
 
 if [[ -x "$VENV_DIR/bin/python" ]] && ! "$VENV_DIR/bin/python" -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
     rm -rf "$VENV_DIR"
