@@ -4,7 +4,7 @@ Cursay's native Windows app provides system-wide push-to-talk dictation on Windo
 
 ## Install a release build
 
-Run `Cursay-<version>-windows-x64-setup.exe`. The installer is per-user by default and does not request administrator access. Cursay starts in the notification area and reserves **Ctrl + Space** for push-to-talk.
+No published release includes the Windows installer yet; until one does, use [Build from source](#build-from-source). When a release includes `Cursay-<version>-windows-x64-setup.exe`, run it. The installer is per-user by default and does not request administrator access. Cursay starts in the notification area and reserves **Ctrl + Space** for push-to-talk.
 
 The first local dictation downloads the English `base.en` Whisper model (about 150 MB). Settings, history, models, and any recordings you explicitly preserve are stored under `%LOCALAPPDATA%\Cursay`.
 
