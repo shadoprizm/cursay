@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  Free, open-source, system-wide dictation for Windows, macOS, and Ubuntu.<br>
+  Free, open-source push-to-talk dictation. Ubuntu release; macOS and Windows build from source.<br>
   Unlimited local dictation, with optional Cursay Pro cloud quality. No Remote Desktop permission.
 </p>
 
@@ -37,13 +37,13 @@ It is built for people who want a free, native Wispr Flow-style workflow without
 
 | Platform | Status | Start here |
 |---|---|---|
-| Ubuntu GNOME on Wayland | Stable public release: **1.2.1**; **1.3.0** release candidate | [Install on Ubuntu](#install-on-ubuntu) |
-| Windows 10/11 x64 | Native release — build artifact | [Windows guide](windows/README.md) |
-| macOS 13+ | Native app — signed release pipeline | [Mac build guide](macos/README.md) |
+| Ubuntu GNOME on Wayland | Stable 1.2.1 (release archive) · 1.3.0 preview | [Install on Ubuntu](#install-on-ubuntu) |
+| macOS 13+ | Build from source; no signed DMG published yet | [Mac build guide](macos/README.md) |
+| Windows 10/11 x64 | Build from source; no installer published yet | [Windows guide](windows/README.md) |
 
 ## The whole interaction
 
-1. Focus any text field.
+1. Focus a text field in a supported desktop app.
 2. Hold **Ctrl + Space**.
 3. Speak naturally—even with pauses.
 4. Release the keys.
@@ -56,7 +56,7 @@ Silence does not end the recording. Releasing the shortcut does.
 - **System-wide:** dictate into browsers, chat apps, editors, terminals, and documents.
 - **Local by default:** faster-whisper runs on your machine after a one-time model download.
 - **Optional Pro cloud:** managed multilingual transcription and Smart Polish with a 1,500-minute monthly allowance and local fallback.
-- **Private history:** searchable transcripts stay on your device.
+- **Private history:** searchable transcripts stay on your device by default. The privacy policy describes optional, separately consented Memory sync for when it is available; it is not currently enabled in production.
 - **Dictation speed:** track words per minute by session and over 14, 30, or 90 days in native Insights, including your existing history.
 - **Cost visibility:** Insights estimates known provider charges from recorded audio duration and uses exact
   provider-reported costs when available.
@@ -70,7 +70,7 @@ Silence does not end the recording. Releasing the shortcut does.
 
 ## Build on macOS
 
-The native SwiftUI Mac app includes a menu-bar controller, configurable push-to-talk shortcuts, native microphone capture, automatic paste, private local history and cost insights, appearance controls, all five writing modes, Smart Polish, and the same Local Whisper, Cursay Cloud, and Custom provider choices as Ubuntu. Local Whisper is bundled and starts on demand. Tagged releases are built as hardened-runtime, Developer ID-signed, notarized, stapled DMGs with signed Sparkle updates.
+The native SwiftUI Mac app includes a menu-bar controller, configurable push-to-talk shortcuts, native microphone capture, automatic paste, private local history and cost insights, appearance controls, all five writing modes, Smart Polish, and the same Local Whisper, Cursay Cloud, and Custom provider choices as Ubuntu. Local Whisper is bundled and starts on demand. The release pipeline is set up for hardened-runtime, Developer ID-signed, notarized, stapled DMGs with signed Sparkle updates, but no signed DMG has been published yet; build from source.
 
 On macOS 13 or newer with Xcode 15 or newer and Python 3.10 or newer:
 
@@ -82,13 +82,36 @@ open dist/Cursay.app
 
 See the [Mac build guide](macos/README.md) for permissions, transcription-service setup, and distribution notes.
 
-## Install on Windows
+## Build on Windows
 
-Download and run `Cursay-<version>-windows-x64-setup.exe` from the matching release. The per-user installer includes the native app and private local speech service. Cursay lives in the notification area and uses **Ctrl + Space** for push-to-talk.
+No Windows installer has been published yet. An installer will be listed on the releases page when one is published. Until then, build the current development source on Windows 10 or 11 x64 with the .NET 8 SDK, Python 3.12 x64 and Inno Setup 6, from PowerShell:
+
+```powershell
+git clone https://github.com/shadoprizm/cursay.git
+cd cursay
+.\windows\scripts\build.ps1
+```
+
+The build produces a per-user installer with the native app and private local speech service. Cursay lives in the notification area and uses **Ctrl + Space** for push-to-talk. Cursay Pro cloud features are not available on Windows; local Whisper and custom endpoints work.
 
 The first local dictation downloads the English `base.en` Whisper model. Windows may ask you to allow microphone access for desktop apps. See the [Windows guide](windows/README.md) for build instructions, data locations, and current limitations.
 
 ## Install on Ubuntu
+
+Install the stable 1.2.1 release from its archive, and check the checksum first:
+
+```bash
+curl -LO https://github.com/shadoprizm/cursay/releases/download/v1.2.1/cursay-1.2.1.tar.gz
+curl -LO https://github.com/shadoprizm/cursay/releases/download/v1.2.1/cursay-1.2.1.tar.gz.sha256
+sha256sum -c cursay-1.2.1.tar.gz.sha256
+tar xzf cursay-1.2.1.tar.gz
+cd cursay-1.2.1
+./install.sh
+```
+
+`sha256sum -c` must print `cursay-1.2.1.tar.gz: OK` before you continue.
+
+To install the current development source instead (it may be ahead of 1.2.1 and is not a stable release):
 
 ```bash
 git clone https://github.com/shadoprizm/cursay.git
@@ -168,10 +191,7 @@ by recording minutes, including pauses. Transcription and Smart Polish wait time
 history is included; sessions without words or timing do not affect speed averages. Private captures are never
 added to history or analytics. These statistics are local to each device.
 
-On Mac and Ubuntu, the **Memory** page links to the account workspace for saved thoughts, Ask Cursay,
-reviews, projects, and confirmed vocabulary. Windows has a workspace action in Insights and Settings.
-Desktop sync requires a linked account, separate workspace consent, and opting into future-capture sync.
-The workspace reports account feature availability; see [release status](docs/RELEASE_STATUS.md) for rollout gates.
+On Mac and Ubuntu, the **Memory** page links to the account workspace; Windows has a workspace action in Insights and Settings. Account Memory (saved thoughts, Ask Cursay, reviews, projects and confirmed vocabulary) is optional and **not currently enabled in production**. When it is, desktop sync will require a linked account, separate workspace consent, and opting into future-capture sync. See [release status](docs/RELEASE_STATUS.md) for rollout gates.
 
 The Insights page shows a provider/model cost breakdown. xAI REST speech-to-text is estimated from locally
 recorded duration at its [published rate](https://docs.x.ai/developers/pricing); unknown custom providers are left
@@ -199,7 +219,7 @@ entry and clipboard; paste that result into your destination app yourself.
 The **Corrections** page lets you add or update a replacement, disable it, or delete it. Rules match
 whole words and phrases without regard to capitalization, use your replacement's exact spelling,
 and apply after basic cleanup and Smart polish. Raw mode bypasses them. Rules and corrected history
-stay on this Ubuntu device, separately from account Memory sync. Editing an external text box alone
+stay on this Ubuntu device, separately from optional account Memory sync (not currently enabled in production). Editing an external text box alone
 does not create a correction or a rule. This is explicit replacement behavior, not model retraining.
 History shows the corrected text's word count, while session, daily, period, and all-time WPM keep
 using the originally generated transcript. Typed additions or deletions never change voice speed.
@@ -277,13 +297,12 @@ Uninstalling preserves settings and dictation history. The script prints the dat
 
 Cursay is available under the [MIT License](LICENSE).
 
-## Cursay Memory
+## Cursay Memory (not currently enabled in production)
 
-Future dictations can sync to account Memory after separate consent at `https://cursay.com/app` and enabling sync on each device. Past local history is not imported. The browser workspace provides saved thoughts, search, Ask Cursay, reviews, projects, explicit vocabulary corrections and reviewable suggestions. Intelligence uses OpenAI GPT-6 Luna through Vercel AI Gateway; speech and Smart Polish keep their existing providers.
+Cursay Memory is an optional, separately consented feature described in the [privacy policy](https://cursay.com/privacy). It is **not currently enabled in production**: production stored Memory and paid credit top-ups remain disabled pending the owner and storage-readiness gates recorded in [release status](docs/RELEASE_STATUS.md). The browser dictation workspace at https://cursay.com/app is live; native capture sync exists in current source only.
 
-Private capture keeps a thought out of local history, retained audio, and Memory. App exclusions fail closed when application identity is unavailable. Only approved vocabulary can inform Local Whisper hints or opted-in Cloud Smart Polish, and Raw/Code modes remain unchanged. Account-bound offline queues apply server deletions before uploads; forgetting Memory invalidates old queued data. Windows uses DPAPI for cloud credentials and its Memory outbox.
+When Memory is enabled, future dictations will sync to account Memory only after separate consent at `https://cursay.com/app` and after you enable sync on each device. Past local history is not imported. The planned workspace features are saved thoughts, search, Ask Cursay, reviews, projects, explicit vocabulary corrections and reviewable suggestions. Intelligence is designed to use OpenAI GPT-6 Luna through Vercel AI Gateway; speech and Smart Polish keep their existing providers.
 
-The browser dictation workspace is live, and native capture sync is in current source. Production stored
-Memory and paid credit top-ups remain disabled pending the owner and storage-readiness gates recorded in
-[release status](docs/RELEASE_STATUS.md). Desktop source and cloud source live in separate repositories;
-see [workspace alignment](docs/WORKSPACE_ALIGNMENT.md) for their roles and verified locations.
+Safeguards in current source: private capture keeps a thought out of local history, retained audio, and Memory. App exclusions fail closed when application identity is unavailable. Only approved vocabulary can inform Local Whisper hints or opted-in Cloud Smart Polish, and Raw/Code modes remain unchanged. Account-bound offline queues apply server deletions before uploads; forgetting Memory invalidates old queued data. Windows uses DPAPI for cloud credentials and its Memory outbox.
+
+Desktop source and cloud source live in separate repositories; see [workspace alignment](docs/WORKSPACE_ALIGNMENT.md) for their roles and verified locations.
