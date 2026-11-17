@@ -103,9 +103,10 @@ class MemorySync:
             if not self._sync_lock.acquire(blocking=False):
                 self._rerun = self._rerun or not background
                 return "Memory sync in progress"
-        before = self.state()
+        before: dict[str, Any] = {}
         sent = False
         try:
+            before = self.state()
             with self._state_lock:
                 generation = self._generation
             state = self.state()

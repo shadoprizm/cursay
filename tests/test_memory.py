@@ -178,3 +178,9 @@ class MemoryTests(unittest.TestCase):
         self.memory.sync()
         with self.store.connect() as connection:
             self.assertEqual(connection.execute("SELECT action FROM memory_outbox").fetchone()[0], "delete")
+
+
+    def test_state_read_failure_releases_sync_lock(self):
+        with patch.object(self.memory, "state", side_effect=RuntimeError("unavailable")):
+            self.assertIn("pending", self.memory.sync())
+        self.assertIn("synced", self.memory.sync())

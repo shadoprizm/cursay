@@ -58,11 +58,12 @@ public sealed class MemorySync(CloudClient cloud)
         {
             if (background && !_schedule.IsDue(Environment.TickCount64)) return _lastStatus;
             if (!background) _schedule.Reset();
-        }
-        if (!await _sync.WaitAsync(0))
-        {
-            lock (_stateLock) _rerun |= !background;
-            return "Memory sync in progress";
+            // Acquiring the gate and requesting replay are atomic with completion.
+            if (!_sync.Wait(0))
+            {
+                _rerun |= !background;
+                return "Memory sync in progress";
+            }
         }
         string before; lock (_stateLock) before = Fingerprint();
         bool sent = false;
