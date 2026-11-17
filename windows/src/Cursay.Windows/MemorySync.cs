@@ -11,13 +11,17 @@ public sealed class MemorySync(CloudClient cloud)
     private readonly object _stateLock = new();
     private JsonObject _state = Load();
     private long _generation;
+    private readonly MemoryPollSchedule _schedule = new();
+    private bool _rerun;
+    private string _lastStatus = "Memory sync pending";
+    private string Fingerprint() => string.Join("|", new[] { "account", "epoch", "enabled", "cursor", "vocabulary" }.Select(k => _state[k]?.ToJsonString()));
     private static JsonObject Load()
     {
         try { return ProtectedFile.Load<JsonObject>(Path.Combine(AppPaths.DataDirectory, "memory-outbox.dpapi")) ?? new JsonObject { ["pending"] = new JsonArray(), ["deletions"] = new JsonArray(), ["vocabulary"] = new JsonArray() }; }
         catch(Exception e) when(e is CryptographicException or JsonException or IOException) { return new JsonObject { ["pending"] = new JsonArray(), ["deletions"] = new JsonArray(), ["vocabulary"] = new JsonArray(), ["unreadable"] = true }; }
     }
     private void Save() => ProtectedFile.Save(_path, _state);
-    public void Reset() { lock (_stateLock) { _generation++; _state = new JsonObject { ["pending"] = new JsonArray(), ["deletions"] = new JsonArray(), ["vocabulary"] = new JsonArray() }; Save(); } }
+    public void Reset() { lock (_stateLock) { _generation++; _schedule.Reset(); _state = new JsonObject { ["pending"] = new JsonArray(), ["deletions"] = new JsonArray(), ["vocabulary"] = new JsonArray() }; Save(); } }
     public string Vocabulary { get { lock (_stateLock) return string.Join(", ", _state["vocabulary"]!.AsArray().Select(v => v!.GetValue<string>()).Take(100)); } }
     public string? CaptureScope { get { lock(_stateLock) return _state["enabled"]?.GetValue<bool>() == true ? $"{_state["account"]?.GetValue<string>()}:{_state["epoch"]?.GetValue<string>()}" : null; } }
     public void Enqueue(Dictation entry, string? expectedScope)
@@ -47,17 +51,29 @@ public sealed class MemorySync(CloudClient cloud)
             Save();
         }
     }
-    public async Task<string> SyncAsync()
+    public async Task<string> SyncAsync(bool background = false)
     {
         lock(_stateLock){if(_state["unreadable"]?.GetValue<bool>()==true)return "Memory queue could not be opened. Local dictation works. Sign out before linking again.";}
-        if (!await _sync.WaitAsync(0)) return "Memory sync in progress";
+        lock (_stateLock)
+        {
+            if (background && !_schedule.IsDue(Environment.TickCount64)) return _lastStatus;
+            if (!background) _schedule.Reset();
+            // Acquiring the gate and requesting replay are atomic with completion.
+            if (!_sync.Wait(0))
+            {
+                _rerun |= !background;
+                return "Memory sync in progress";
+            }
+        }
+        string before; lock (_stateLock) before = Fingerprint();
+        bool sent = false;
         try
         {
             long cursor, turn; lock (_stateLock) { cursor = _state["cursor"]?.GetValue<long>() ?? 0; turn = _generation; }
-            var page = await cloud.AuthorizedAsync($"/api/v1/memory?cursor={cursor}");
+            var page = await cloud.AuthorizedAsync($"/api/v1/memory?sync=1&cursor={cursor}");
             bool changed;
-            lock (_stateLock) { if(turn!=_generation)return "Memory sync canceled"; changed = _state["account"]?.GetValue<string>() != page["settings"]!["account_id"]!.GetValue<string>() || _state["epoch"]?.GetValue<string>() != page["settings"]!["epoch"]!.GetValue<string>(); }
-            if (changed) { lock(_stateLock) { if(turn!=_generation)return "Memory sync canceled"; _state = new JsonObject { ["pending"] = new JsonArray(), ["deletions"] = new JsonArray(), ["vocabulary"] = new JsonArray() }; Save(); } page = await cloud.AuthorizedAsync("/api/v1/memory"); }
+            lock (_stateLock) { if(turn!=_generation)return "Memory sync canceled"; changed = _state["account"] is not null && (_state["account"]?.GetValue<string>() != page["settings"]!["account_id"]!.GetValue<string>() || _state["epoch"]?.GetValue<string>() != page["settings"]!["epoch"]!.GetValue<string>()); }
+            if (changed) { lock(_stateLock) { if(turn!=_generation)return "Memory sync canceled"; _state = new JsonObject { ["pending"] = new JsonArray(), ["deletions"] = new JsonArray(), ["vocabulary"] = new JsonArray() }; Save(); } page = await cloud.AuthorizedAsync("/api/v1/memory?sync=1"); }
             while (true)
             {
                 lock (_stateLock)
@@ -75,7 +91,8 @@ public sealed class MemorySync(CloudClient cloud)
                     cursor = page["cursor"]!.GetValue<long>(); Save();
                 }
                 if (!page["has_more"]!.GetValue<bool>()) break;
-                page = await cloud.AuthorizedAsync($"/api/v1/memory?cursor={cursor}");
+                page = await cloud.AuthorizedAsync($"/api/v1/memory?sync=1&cursor={cursor}");
+                if (page["cursor"]!.GetValue<long>() <= cursor) throw new InvalidDataException("Memory cursor did not advance");
             }
             List<string> deletions; List<JsonNode> entries;
             lock (_stateLock) { deletions = _state["deletions"]!.AsArray().Select(v => v!.GetValue<string>()).ToList(); entries = _state["pending"]!.AsArray().Select(v => v!.DeepClone()).ToList(); }
@@ -83,20 +100,35 @@ public sealed class MemorySync(CloudClient cloud)
             {
                 lock(_stateLock) { if(turn!=_generation)return "Memory sync canceled"; }
                 await cloud.AuthorizedAsync("/api/v1/memory", new { action = "delete", id });
+                sent = true;
                 lock (_stateLock) { if(turn!=_generation)return "Memory sync canceled"; var list = _state["deletions"]!.AsArray(); foreach (var v in list.Where(v => v!.GetValue<string>() == id).ToList()) list.Remove(v); Save(); }
             }
             foreach (var entry in entries)
             {
                 lock(_stateLock) { if(turn!=_generation)return "Memory sync canceled"; }
-                try { await cloud.AuthorizedAsync("/api/v1/memory", new { action = "save", capture = entry }); }
+                lock (_stateLock)
+                {
+                    if (!_state["pending"]!.AsArray().Any(v => JsonNode.DeepEquals(v, entry)) || _state["deletions"]!.AsArray().Any(v => v!.GetValue<string>() == entry["id"]!.GetValue<string>())) continue;
+                }
+                try { await cloud.AuthorizedAsync("/api/v1/memory", new { action = "save", capture = entry }); sent = true; }
                 catch (CloudServiceException e) when (e.Code == "sync_conflict") { }
-                lock (_stateLock) { if(turn!=_generation)return "Memory sync canceled"; var list = _state["pending"]!.AsArray(); foreach (var v in list.Where(v => v!["id"]!.GetValue<string>() == entry["id"]!.GetValue<string>()).ToList()) list.Remove(v); Save(); }
+                lock (_stateLock) { if(turn!=_generation)return "Memory sync canceled"; var list = _state["pending"]!.AsArray(); foreach (var v in list.Where(v => JsonNode.DeepEquals(v, entry)).ToList()) list.Remove(v); Save(); }
             }
-            lock (_stateLock) return _state["enabled"]!.GetValue<bool>() ? "Memory synced" : "Memory off — enable it in the workspace";
+            lock (_stateLock) return _lastStatus = _state["enabled"]!.GetValue<bool>() ? "Memory synced" : "Memory off — enable it in the workspace";
         }
         catch (CloudServiceException e) when (e.Code == "memory_not_available")
-        { return "Account Memory is unavailable on the server. Local dictation is still available."; }
-        catch { return "Memory sync pending. Local dictation is available."; }
-        finally { _sync.Release(); }
+        { lock (_stateLock) return _lastStatus = "Account Memory is unavailable on the server. Local dictation is still available."; }
+        catch { lock (_stateLock) return _lastStatus = "Memory sync pending. Local dictation is available."; }
+        finally
+        {
+            bool rerun;
+            lock (_stateLock)
+            {
+                _schedule.Completed(Environment.TickCount64, sent || before != Fingerprint());
+                rerun = _rerun; _rerun = false;
+                _sync.Release();
+            }
+            if (rerun) _ = Task.Run(() => SyncAsync());
+        }
     }
 }

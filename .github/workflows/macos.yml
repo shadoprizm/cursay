@@ -17,6 +17,17 @@ permissions:
   contents: read
 
 jobs:
+  native-tests:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      # Do not use `swift -e import XCTest` as a probe: XCTest is resolved by SwiftPM.
+      - name: Run Swift tests
+        run: swift test --package-path macos
+      - name: Compile native app
+        run: swift build --package-path macos -c release --product Cursay
+
   build:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: macos-15

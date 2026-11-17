@@ -17,6 +17,18 @@ permissions:
   contents: read
 
 jobs:
+  native-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: Test native logic
+        run: dotnet test windows/tests/Cursay.Windows.Tests/Cursay.Windows.Tests.csproj -c Release
+      - name: Compile native app
+        run: dotnet build windows/src/Cursay.Windows/Cursay.Windows.csproj -c Release
+
   build:
     runs-on: windows-2025
     steps:

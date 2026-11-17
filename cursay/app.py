@@ -1169,6 +1169,7 @@ class CursayApplication(Adw.Application):
                 if self.config["memory_sync"]:
                     self.sync_memory()
                 GLib.timeout_add_seconds(60, self._memory_tick)
+                Gio.NetworkMonitor.get_default().connect("network-changed", self._memory_network_changed)
             if self.pending_update_status is not None:
                 success, message = self.pending_update_status
                 self.window.set_update_state(
@@ -1579,14 +1580,18 @@ class CursayApplication(Adw.Application):
             self.window.set_cloud_account("This device is signed out and revoked." if revoked else "Signed out locally. Open account devices to confirm remote revocation.", linked=False)
             self.window.toast("Cursay Cloud signed out")
 
+    def _memory_network_changed(self, _monitor: Any, available: bool) -> None:
+        if available and self.config["memory_sync"]:
+            self.sync_memory()
+
     def _memory_tick(self) -> bool:
         if self.config["memory_sync"]:
-            self.sync_memory()
+            self.sync_memory(background=True)
         return True
 
-    def sync_memory(self) -> None:
+    def sync_memory(self, *, background: bool = False) -> None:
         def worker() -> None:
-            status = self.memory.sync()
+            status = self.memory.sync(background=background)
             if self.window:
                 GLib.idle_add(self.window.memory_status.set_label, status)
         threading.Thread(target=worker, daemon=True).start()

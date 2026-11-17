@@ -164,7 +164,7 @@ public actor CloudClient {
     public func memoryRequest(method: String = "GET", body: Data? = nil, cursor: Int64 = 0) async throws -> Data {
         var tokens = try await validTokens()
         for attempt in 0..<2 {
-            var request = URLRequest(url: baseURL.appendingPathComponent("api/v1/memory").appending(queryItems: [URLQueryItem(name: "cursor", value: String(cursor))]))
+            var request = URLRequest(url: baseURL.appendingPathComponent("api/v1/memory").appending(queryItems: [URLQueryItem(name: "sync", value: "1"), URLQueryItem(name: "cursor", value: String(cursor))]))
             request.httpMethod = method
             request.httpBody = body
             request.timeoutInterval = 30

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import threading
+import time
 from typing import Any
 from .storage import HistoryStore
 
@@ -14,6 +15,10 @@ class MemorySync:
         self._sync_lock = threading.Lock()
         self._state_lock = threading.RLock()
         self._generation = 0
+        self._idle_step = 0
+        self._next_poll = 0.0
+        self._last_status = "Memory sync pending"
+        self._rerun = False
         with store.connect() as c:
             c.executescript("""
                 CREATE TABLE IF NOT EXISTS memory_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
@@ -29,6 +34,8 @@ class MemorySync:
     def reset(self) -> None:
         with self._state_lock:
             self._generation += 1
+            self._idle_step = 0
+            self._next_poll = 0.0
             self._clear()
 
     def _clear(self) -> None:
@@ -87,10 +94,19 @@ class MemorySync:
                     ),
                 )
 
-    def sync(self) -> str:
-        if not self._sync_lock.acquire(blocking=False):
-            return "Memory sync in progress"
+    def sync(self, *, background: bool = False) -> str:
+        with self._state_lock:
+            if background and time.monotonic() < self._next_poll:
+                return self._last_status
+            if not background:
+                self._idle_step = 0
+            if not self._sync_lock.acquire(blocking=False):
+                self._rerun = self._rerun or not background
+                return "Memory sync in progress"
+        before: dict[str, Any] = {}
+        sent = False
         try:
+            before = self.state()
             with self._state_lock:
                 generation = self._generation
             state = self.state()
@@ -99,7 +115,7 @@ class MemorySync:
                 if generation != self._generation:
                     return "Memory sync canceled"
             settings = page["settings"]
-            if state.get("account") != settings["account_id"] or state.get("epoch") != settings["epoch"]:
+            if state.get("account") and (state.get("account") != settings["account_id"] or state.get("epoch") != settings["epoch"]):
                 with self._state_lock:
                     if generation != self._generation:
                         return "Memory sync canceled"
@@ -133,7 +149,10 @@ class MemorySync:
                     c.execute("INSERT OR REPLACE INTO memory_state VALUES(1,?)", (json.dumps(state),))
                 if not page.get("has_more"):
                     break
-                page = self.cloud.memory(cursor=int(state["cursor"]))
+                next_page = self.cloud.memory(cursor=int(state["cursor"]))
+                if int(next_page["cursor"]) <= int(state["cursor"]):
+                    raise ValueError("Memory cursor did not advance")
+                page = next_page
             with self.store.connect() as c:
                 pending = c.execute(
                     "SELECT * FROM memory_outbox ORDER BY CASE WHEN action='delete' THEN 0 ELSE 1 END"
@@ -142,8 +161,14 @@ class MemorySync:
                 with self._state_lock:
                     if generation != self._generation:
                         return "Memory sync canceled"
+                # A local deletion may have replaced this queued save while awaiting I/O.
+                with self._state_lock, self.store.connect() as c:
+                    current = c.execute("SELECT payload FROM memory_outbox WHERE id=?", (row["id"],)).fetchone()
+                    if not current or current["payload"] != row["payload"]:
+                        continue
                 try:
                     self.cloud.memory(json.loads(row["payload"]))
+                    sent = True
                 except Exception as exc:
                     if getattr(exc, "code", None) != "sync_conflict":
                         raise
@@ -153,17 +178,31 @@ class MemorySync:
                     c.execute(
                         "DELETE FROM memory_outbox WHERE id=? AND payload=?", (row["id"], row["payload"])
                     )
-            return (
+            self._last_status = (
                 f"Memory synced · {len(state['vocabulary'])} approved words"
                 if state["enabled"]
                 else "Memory off — enable it in the workspace"
             )
+            if sent or before != state:
+                self._idle_step = 0
+            return self._last_status
         except Exception as exc:
             if getattr(exc, "code", None) == "memory_not_available":
-                return "Account Memory is unavailable on the server. Local dictation is still available."
-            return "Memory sync pending. Local dictation is still available."
+                self._last_status = "Account Memory is unavailable on the server. Local dictation is still available."
+            else:
+                self._last_status = "Memory sync pending. Local dictation is still available."
+            return self._last_status
         finally:
-            self._sync_lock.release()
+            with self._state_lock:
+                delays = (60, 120, 300, 900)
+                self._next_poll = time.monotonic() + delays[self._idle_step]
+                self._idle_step = min(self._idle_step + 1, len(delays) - 1)
+                rerun = self._rerun
+                self._rerun = False
+                self._sync_lock.release()
+            if rerun:
+                # A capture/deletion arriving during a request must not wait for idle polling.
+                threading.Thread(target=self.sync, daemon=True).start()
 
 
 def is_private_capture(private: bool, exclusions: str, application: str | None = None) -> bool:
