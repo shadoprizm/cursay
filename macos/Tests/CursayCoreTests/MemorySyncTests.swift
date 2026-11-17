@@ -52,14 +52,33 @@ private actor MockMemoryTransport: MemoryTransport {
     var pages: [Data]
     var cursors: [Int64] = []
     var fails = false
+    var pauseMethod: String?
+    var resumeRequest: CheckedContinuation<Void, Never>?
+    var pauseWaiter: CheckedContinuation<Void, Never>?
+    var saveCount = 0
     init(pages: [Data]) { self.pages = pages }
     func memoryRequest(method: String, body: Data?, cursor: Int64) async throws -> Data {
         cursors.append(cursor)
+        if method == "POST", let body,
+           let value = try? JSONSerialization.jsonObject(with: body) as? [String: Any], value["action"] as? String == "save" { saveCount += 1 }
+        if pauseMethod == method {
+            pauseMethod = nil
+            await withCheckedContinuation { continuation in
+                resumeRequest = continuation
+                pauseWaiter?.resume(); pauseWaiter = nil
+            }
+        }
         if fails { throw CloudClientError.invalidResponse }
         if pages.count > 1 { return pages.removeFirst() }
         return pages[0]
     }
     func setFailure(_ value: Bool) { fails = value }
+    func pauseNext(_ method: String) { pauseMethod = method }
+    func waitUntilPaused() async {
+        if resumeRequest != nil { return }
+        await withCheckedContinuation { pauseWaiter = $0 }
+    }
+    func resume() { resumeRequest?.resume(); resumeRequest = nil }
 }
 
 final class MemoryTransportTests: XCTestCase {
@@ -123,4 +142,50 @@ final class MemoryTransportTests: XCTestCase {
         let uploaded = try JSONDecoder().decode(MemoryOutboxState.self, from: Data(contentsOf: dir.appendingPathComponent("memory-outbox.json")))
         XCTAssertTrue(uploaded.pending.isEmpty)
     }
+    func testCaptureArrivingDuringUploadIsReplayedWithoutWaitingForPoll() async throws {
+        let transport = MockMemoryTransport(pages: [try page()])
+        let dir = try directory()
+        let sync = MemorySync(client: transport, directory: dir)
+        _ = await sync.sync()
+        let scope = await sync.captureScope()
+        let first = Dictation(rawText: "one", finalText: "One", mode: .raw, language: "en", durationSeconds: 1, provider: "test", model: "test")
+        let second = Dictation(rawText: "two", finalText: "Two", mode: .raw, language: "en", durationSeconds: 1, provider: "test", model: "test")
+        await transport.pauseNext("POST")
+        let active = Task { await sync.record(first, expectedScope: scope) }
+        await transport.waitUntilPaused()
+        _ = await sync.record(second, expectedScope: scope)
+        await transport.resume()
+        _ = await active.value
+        for _ in 0..<100 {
+            let count = await transport.saveCount
+            if count == 2 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let count = await transport.saveCount
+        XCTAssertEqual(count, 2)
+    }
+
+    func testDeleteDuringUploadSurvivesAndReplays() async throws {
+        let transport = MockMemoryTransport(pages: [try page()])
+        let dir = try directory()
+        let sync = MemorySync(client: transport, directory: dir)
+        _ = await sync.sync()
+        let scope = await sync.captureScope()
+        let entry = Dictation(rawText: "fixture", finalText: "Fixture", mode: .raw, language: "en", durationSeconds: 1, provider: "test", model: "test")
+        await transport.pauseNext("POST")
+        let active = Task { await sync.record(entry, expectedScope: scope) }
+        await transport.waitUntilPaused()
+        _ = await sync.delete(entry.id)
+        await transport.resume()
+        _ = await active.value
+        var state = MemoryOutboxState()
+        for _ in 0..<100 {
+            state = try JSONDecoder().decode(MemoryOutboxState.self, from: Data(contentsOf: dir.appendingPathComponent("memory-outbox.json")))
+            if state.pending.isEmpty && state.deletions.isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(state.pending.isEmpty)
+        XCTAssertTrue(state.deletions.isEmpty)
+    }
+
 }
