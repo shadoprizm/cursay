@@ -221,7 +221,7 @@ class CloudClient:
 
     def memory(self, body: dict[str, Any] | None = None, cursor: int = 0) -> dict[str, Any]:
         tokens = self.tokens()
-        path = f"/api/v1/memory?cursor={cursor}"
+        path = f"/api/v1/memory?sync=1&cursor={cursor}"
         try:
             return self._request(path, method="POST" if body else "GET", body=body, access_token=tokens.access_token)
         except CloudError as exc:

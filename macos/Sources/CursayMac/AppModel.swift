@@ -3,6 +3,7 @@ import AVFoundation
 import Combine
 import CursayCore
 import Foundation
+import Network
 import ServiceManagement
 import os
 
@@ -88,6 +89,9 @@ final class AppModel: ObservableObject {
     private let polishClient = PolishClient()
     private let cloudClient = CloudClient(baseURL: URL(string: "https://cursay.com")!)
     private let localBackend = LocalBackendManager()
+    private let memoryNetworkMonitor = NWPathMonitor()
+    private var memoryWakeSubscription: AnyCancellable?
+    private var memoryNetworkWasAvailable: Bool?
     private let hotKey = GlobalHotKey()
     private var historyStore: HistoryStore?
     private var recordingTarget: PasteTarget?
@@ -130,10 +134,27 @@ final class AppModel: ObservableObject {
             pasteController.requestAccessibilityAccess()
         }
 
+        memoryNetworkMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let available = path.status == .satisfied
+                let restored = self.memoryNetworkWasAvailable == false && available
+                self.memoryNetworkWasAvailable = available
+                if restored && self.settings.memorySync { await self.syncMemory() }
+            }
+        }
+        memoryNetworkMonitor.start(queue: DispatchQueue(label: "Cursay.MemoryConnectivity"))
+        memoryWakeSubscription = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.settings.memorySync else { return }
+                    await self.syncMemory()
+                }
+            }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.settings.memorySync else { return }
-                await self.syncMemory()
+                await self.syncMemory(background: true)
             }
         }
         Task {
@@ -350,7 +371,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func syncMemory() async { memoryStatus = await memory.sync(); memoryScope = await memory.captureScope() }
+    func syncMemory(background: Bool = false) async { memoryStatus = await memory.sync(background: background); memoryScope = await memory.captureScope() }
 
     func requestAccessibilityAccess() {
         pasteController.requestAccessibilityAccess()

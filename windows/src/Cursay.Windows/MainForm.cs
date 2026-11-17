@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using System.Drawing.Drawing2D;
 
 namespace Cursay.Windows;
@@ -43,8 +44,9 @@ public sealed class MainForm : Form
         AppPaths.EnsureDirectories();
         _history = _historyStore.Load().ToList();
         _memory = new MemorySync(_cloud);
-        _memoryTimer.Tick += async (_, _) => { if (_settings.MemorySync) _memoryStatus.Text = await _memory.SyncAsync(); };
+        _memoryTimer.Tick += async (_, _) => { if (_settings.MemorySync) _memoryStatus.Text = await _memory.SyncAsync(background: true); };
         _memoryTimer.Start();
+        NetworkChange.NetworkAvailabilityChanged += MemoryNetworkAvailabilityChanged;
         Text = "Cursay";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(850, 580);
@@ -766,12 +768,26 @@ public sealed class MainForm : Form
         Close();
     }
 
+    private void MemoryNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs args)
+    {
+        if (!args.IsAvailable || IsDisposed || !IsHandleCreated) return;
+        try
+        {
+            BeginInvoke(new Action(async () =>
+            {
+                if (!IsDisposed && _settings.MemorySync) _memoryStatus.Text = await _memory.SyncAsync();
+            }));
+        }
+        catch (InvalidOperationException) { /* Window closed during the callback. */ }
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
             _targetTimer.Dispose();
             _shortcut?.Dispose();
+            NetworkChange.NetworkAvailabilityChanged -= MemoryNetworkAvailabilityChanged;
             _memoryTimer.Dispose();
             _cloud.Dispose();
             _recorder.Dispose();

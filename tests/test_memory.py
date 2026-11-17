@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from cursay.memory import MemorySync, is_private_capture
 from cursay.storage import HistoryStore
 from cursay.cloud import CloudError
@@ -114,3 +114,67 @@ class MemoryTests(unittest.TestCase):
         self.assertTrue(is_private_capture(False, "secret.app", "secret.app"))
         self.assertFalse(is_private_capture(False, "secret.app", "other.app"))
         self.assertFalse(is_private_capture(False, ""))
+
+
+    def test_idle_backoff_is_bounded_and_foreground_bypasses_it(self):
+        with patch("cursay.memory.time.monotonic", return_value=100) as clock:
+            self.memory.sync()
+            self.assertEqual(self.cloud.memory.call_count, 1)
+            now = 100
+            for delay in (60, 120, 300, 900, 900):
+                clock.return_value = now + delay - 1
+                count = self.cloud.memory.call_count
+                self.memory.sync(background=True)
+                self.assertEqual(self.cloud.memory.call_count, count)
+                now += delay
+                clock.return_value = now
+                self.memory.sync(background=True)
+                self.assertEqual(self.cloud.memory.call_count, count + 1)
+            self.memory.sync()
+            self.assertEqual(self.cloud.memory.call_count, count + 2)
+
+    def test_compact_bootstrap_uses_one_request(self):
+        self.memory.sync()
+        self.assertEqual(self.cloud.memory.call_count, 1)
+
+    def test_nonadvancing_pagination_fails_bounded(self):
+        self.page.update(cursor=5, has_more=True)
+        self.assertIn("pending", self.memory.sync())
+        self.assertEqual(self.cloud.memory.call_count, 2)
+
+    def test_paginated_tombstone_prevents_upload(self):
+        self.memory.sync()
+        row = self.row()
+        self.memory.enqueue(row, self.memory.capture_scope())
+        first = dict(self.page, cursor=3, has_more=True)
+        last = dict(self.page, cursor=4, captures=[{"id": row["memory_id"], "deleted_at": "today"}])
+        self.cloud.memory.side_effect = [first, last]
+        self.memory.sync()
+        with self.store.connect() as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM memory_outbox").fetchone()[0], 0)
+        self.assertEqual(self.memory.state()["cursor"], 4)
+
+    def test_offline_queue_survives_restart(self):
+        self.memory.sync()
+        self.memory.enqueue(self.row(), self.memory.capture_scope())
+        self.cloud.memory.side_effect = RuntimeError("offline")
+        self.memory.sync()
+        restarted = MemorySync(self.store, self.cloud)
+        self.cloud.memory.side_effect = None
+        restarted.sync()
+        self.assertEqual(self.cloud.memory.call_args.args[0]["action"], "save")
+        with self.store.connect() as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM memory_outbox").fetchone()[0], 0)
+
+    def test_local_delete_during_upload_is_not_lost(self):
+        self.memory.sync()
+        row = self.row()
+        self.memory.enqueue(row, self.memory.capture_scope())
+        def during_upload(*args, **kwargs):
+            if args:
+                self.memory.delete(row)
+            return self.page
+        self.cloud.memory.side_effect = during_upload
+        self.memory.sync()
+        with self.store.connect() as connection:
+            self.assertEqual(connection.execute("SELECT action FROM memory_outbox").fetchone()[0], "delete")
