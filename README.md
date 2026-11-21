@@ -9,12 +9,14 @@
 <p align="center">
   <a href="https://cursay.com/"><strong>Website</strong></a>
   ·
+  <a href="https://cursay.com/guides/ubuntu-dictation?utm_source=github&amp;utm_medium=repository&amp;utm_campaign=setup"><strong>Ubuntu setup guide</strong></a>
+  ·
   <a href="https://github.com/shadoprizm/cursay/releases/latest"><strong>Latest release</strong></a>
 </p>
 
 <p align="center">
-  Free, open-source, system-wide dictation for Windows, macOS, and Ubuntu.<br>
-  Unlimited local dictation, with optional Cursay Pro cloud quality. No Remote Desktop permission.
+  Free, open-source push-to-talk dictation. Published Ubuntu GNOME/Wayland release; Mac and Windows source builds.<br>
+  Unlimited local dictation without an account. Optional Cursay Pro cloud transcription on Ubuntu and Mac.
 </p>
 
 <p align="center">
@@ -37,13 +39,13 @@ It is built for people who want a free, native Wispr Flow-style workflow without
 
 | Platform | Status | Start here |
 |---|---|---|
-| Ubuntu GNOME on Wayland | Stable public release: **1.2.1**; **1.3.0** release candidate | [Install on Ubuntu](#install-on-ubuntu) |
-| Windows 10/11 x64 | Native release — build artifact | [Windows guide](windows/README.md) |
-| macOS 13+ | Native app — signed release pipeline | [Mac build guide](macos/README.md) |
+| Ubuntu GNOME on Wayland | Published stable release: **1.2.1** | [Guided setup and first dictation](https://cursay.com/guides/ubuntu-dictation?utm_source=github&utm_medium=repository&utm_campaign=setup), or [install commands](#install-on-ubuntu) |
+| Windows 10/11 x64 | Build from source; no Windows installer in the current public release. Linked Pro is not supported yet. | [Windows setup](https://cursay.com/guides/windows-dictation?utm_source=github&utm_medium=repository&utm_campaign=setup) · [Build guide](windows/README.md) |
+| macOS 13+ | Build from source; no Mac DMG in the current public release | [Mac setup](https://cursay.com/guides/mac-dictation?utm_source=github&utm_medium=repository&utm_campaign=setup) · [Build guide](macos/README.md) |
 
 ## The whole interaction
 
-1. Focus any text field.
+1. Focus a supported text field.
 2. Hold **Ctrl + Space**.
 3. Speak naturally—even with pauses.
 4. Release the keys.
@@ -70,7 +72,7 @@ Silence does not end the recording. Releasing the shortcut does.
 
 ## Build on macOS
 
-The native SwiftUI Mac app includes a menu-bar controller, configurable push-to-talk shortcuts, native microphone capture, automatic paste, private local history and cost insights, appearance controls, all five writing modes, Smart Polish, and the same Local Whisper, Cursay Cloud, and Custom provider choices as Ubuntu. Local Whisper is bundled and starts on demand. Tagged releases are built as hardened-runtime, Developer ID-signed, notarized, stapled DMGs with signed Sparkle updates.
+The native SwiftUI Mac app includes a menu-bar controller, configurable push-to-talk shortcuts, native microphone capture, automatic paste, private local history and cost insights, appearance controls, all five writing modes, Smart Polish, and the same Local Whisper, Cursay Cloud, and Custom provider choices as Ubuntu. Local Whisper is bundled and starts on demand. The distribution pipeline supports hardened-runtime, Developer ID-signed, notarized DMGs with Sparkle updates. The current public v1.2.1 release contains the Ubuntu archive, not a Mac DMG; use the source-build steps below.
 
 On macOS 13 or newer with Xcode 15 or newer and Python 3.10 or newer:
 
@@ -84,11 +86,15 @@ See the [Mac build guide](macos/README.md) for permissions, transcription-servic
 
 ## Install on Windows
 
-Download and run `Cursay-<version>-windows-x64-setup.exe` from the matching release. The per-user installer includes the native app and private local speech service. Cursay lives in the notification area and uses **Ctrl + Space** for push-to-talk.
+The current public v1.2.1 release has no Windows installer. Build the native app and per-user installer using the [Windows build guide](windows/README.md), then run your built installer. Cursay lives in the notification area and uses **Ctrl + Space** for push-to-talk.
 
 The first local dictation downloads the English `base.en` Whisper model. Windows may ask you to allow microphone access for desktop apps. See the [Windows guide](windows/README.md) for build instructions, data locations, and current limitations.
 
 ## Install on Ubuntu
+
+For the published stable **1.2.1** release, follow the [Ubuntu setup guide](https://cursay.com/guides/ubuntu-dictation?utm_source=github&utm_medium=repository&utm_campaign=setup), including archive checksum verification and the first-dictation check.
+
+The commands below install the current **development source** from `main`, which may be ahead of the stable release:
 
 ```bash
 git clone https://github.com/shadoprizm/cursay.git
@@ -154,7 +160,7 @@ The shortcut portal can observe only Cursay's approved shortcut. The paste devic
 
 ## Transcription choices
 
-Choose **Local Whisper**, **Cursay Cloud**, or **Custom** in Settings. Local Whisper remains free, unlimited, accountless, and entirely on-device after the model download. Cursay Cloud is included in the optional [$8/month or $80/year Pro plan](https://cursay.com/pricing), includes 1,500 minutes in each monthly service window, and falls back to Local Whisper when enabled.
+On Ubuntu and Mac, choose **Local Whisper**, **Cursay Cloud**, or **Custom** in Settings. Windows currently supports local and custom endpoints, without linked Pro. Local Whisper recognition remains free, unlimited and accountless, and runs on-device after the model download. Remote Smart Polish is a separate choice. Cursay Cloud is included in the optional [Pro plan](https://cursay.com/pricing?utm_source=github&utm_medium=repository&utm_campaign=pro), includes 1,500 minutes in each monthly service window, and falls back to Local Whisper when enabled. Check the pricing page for current prices and trial terms.
 
 Ubuntu stores Pro device tokens only in GNOME Secret Service, which requires `secret-tool` from the optional `libsecret-tools` package. macOS stores them only in Keychain. Cursay does not fall back to a plaintext token file.
 
